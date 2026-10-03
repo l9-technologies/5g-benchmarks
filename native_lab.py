@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,32 +17,10 @@ from datetime import datetime
 
 from benchmark import balanced_repetitions, FEATURES, METRICS, digest, number, object_hash, percentile, read, stop_group, validate_plan, write
 
+from adapters import open5gs,free5gc,ueransim
+from adapters.common import NFS,OPEN_NFS,FREE_NFS,KEY,OPC,UE_ROUTE_TABLE_BASE,initial_sqn,command,module
+
 ROOT = Path(__file__).resolve().parent
-NFS = "nrf udr udm ausf pcf nssf amf smf upf".split()
-OPEN_NFS = NFS + ["bsf"]
-FREE_NFS = NFS + ["chf"]
-KEY = "00112233445566778899aabbccddeeff"
-OPC = "000102030405060708090a0b0c0d0e0f"
-UE_ROUTE_TABLE_BASE = 1000  # Keep UE policy routes outside Linux tables 253 through 255.
-
-
-def initial_sqn(index):
-    return index << 5
-
-
-def command(args, timeout=60, check=True):
-    result = subprocess.run([str(a) for a in args], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
-    if check and result.returncode:
-        raise RuntimeError(f"{args[0]} exited {result.returncode}: {result.stderr[-1500:]}")
-    return result.stdout
-
-
-def module(path, name):
-    spec = importlib.util.spec_from_file_location(name, path)
-    loaded = importlib.util.module_from_spec(spec)
-    sys.modules[name] = loaded
-    spec.loader.exec_module(loaded)
-    return loaded
 
 
 def receiver_metrics(data, udp):
@@ -144,6 +121,7 @@ def prepare(args):
     mongo = json.loads(command(["podman", "image", "inspect", args.mongo_image]))[0]
     image_id = mongo["Id"]
     paths += [config_tool, profile, ROOT / "benchmark.py", Path(__file__).resolve()]
+    paths += sorted((ROOT/"runner").glob("*.py"))+sorted((ROOT/"adapters").glob("*.py"))
     paths+=list(radio_configs.glob('*.yaml'))
     # Pin runtime libraries as well as programs: an OS update changes the trial.
     libraries = set()
@@ -271,41 +249,8 @@ class Lab:
             time.sleep(.05)
         raise TimeoutError("readiness deadline expired")
 
-    def start_open5gs(self, count):
-        count=max(count,2)
-        conf = self.output / "open5gs"
-        config_module = module(Path(self.config["configuration_tool"]), "benchmark_open5gs_config")
-        config_module.configure(argparse.Namespace(config_dir=conf, profile=Path(self.config["profile"]),
-            interface="lo", n3_bind_host="127.0.0.1", n3_advertise_host="127.0.0.1", metadata=self.output / "open5gs.json"))
-        # Use direct NRF discovery for every NF. No host service or host config is changed.
-        addresses = {"nrf": "127.0.0.10", "scp": "127.0.0.200", "ausf": "127.0.0.11", "udm": "127.0.0.12",
-                     "udr": "127.0.0.20", "pcf": "127.0.0.13", "nssf": "127.0.0.14", "bsf": "127.0.0.15",
-                     "amf": "127.0.0.5", "smf": "127.0.0.4", "upf": "127.0.0.7"}
-        for nf in OPEN_NFS:
-            path = conf / f"{nf}.yaml"
-            data = read(path) if path.exists() else {nf: {"sbi": {"server": [{"address": addresses[nf], "port": 7777}], "client": {"nrf": [{"uri": "http://127.0.0.10:7777"}]}}}}
-            data["logger"] = {"file": {"path": str(self.output / f"open5gs-{nf}.log")}}
-            if "sbi" in data[nf] and nf != "nrf":
-                client = data[nf]["sbi"].setdefault("client", {})
-                client.pop("scp", None)
-                client["nrf"] = [{"uri": "http://127.0.0.10:7777"}]
-            if nf == "amf":
-                data[nf]["ngap"]["server"] = [{"address": "127.0.0.1"}]
-                data[nf]["security"] = {"integrity_order": ["NIA2"], "ciphering_order": ["NEA2"]}
-            write(path, data)
-        self.ns(self.core_ns, ["ip", "tuntap", "add", "ogstun", "mode", "tun"])
-        self.ns(self.core_ns, ["ip", "addr", "add", "10.45.0.1/24", "dev", "ogstun"])
-        self.ns(self.core_ns, ["ip", "link", "set", "ogstun", "up"])
-        self.ns(self.core_ns, ["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "10.45.0.0/24", "-o", "dn0", "-j", "MASQUERADE"])
-        self.ns(self.core_ns, ["iptables", "-A", "FORWARD", "-i", "ogstun", "-o", "dn0", "-s", "10.45.0.0/24", "-j", "ACCEPT"])
-        self.ns(self.core_ns, ["iptables", "-A", "FORWARD", "-i", "dn0", "-o", "ogstun", "-d", "10.45.0.0/24", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
-        self.start_database()
-        js = 'for(let i=1;i<=' + str(count) + ';i++){const imsi=String(1010000000000+i).padStart(15,"0"); db.subscribers.insertOne({schema_version:1,imsi,msisdn:[],slice:[{sst:1,sd:"010203",default_indicator:true,session:[{name:"internet",type:3,qos:{index:9,arp:{priority_level:8,pre_emption_capability:1,pre_emption_vulnerability:2}},ambr:{downlink:{value:1,unit:3},uplink:{value:1,unit:3}},pcc_rule:[]}]}],security:{k:"' + KEY + '",opc:"' + OPC + '",amf:"8000",sqn:NumberLong(String(i*32))},ambr:{downlink:{value:1,unit:3},uplink:{value:1,unit:3}},access_restriction_data:32,network_access_mode:0,subscriber_status:0});}'
-        self.provision_database("open5gs", js)
-        for nf in OPEN_NFS:
-            self.start(f"core-{nf}", [Path(self.config["open5gs_bin"]) / f"open5gs-{nf}d", "-c", conf / f"{nf}.yaml"], role="core")
-        self.wait(lambda: "38412" in self.ns(self.core_ns, ["ss", "-lSnH"]))
-        self.wait(lambda: "PFCP associated" in (self.output / "core-smf.log").read_text())
+    def start_open5gs(self,count):
+        return open5gs.start(self,count)
 
     def start_core(self,core,count):
         if core=='open5gs':return self.start_open5gs(count)
@@ -328,79 +273,15 @@ class Lab:
         command(["podman", "cp", path, f"{self.mongo}:/tmp/subscribers.js"])
         command(["podman", "exec", self.mongo, "mongosh", "--quiet", database, "/tmp/subscribers.js"])
 
-    def start_free5gc(self, count):
-        count=max(count,2)
-        root = Path(self.config["free5gc"])
-        conf = self.output / "free5gc"
-        conf.mkdir()
-        aliases = {"nrf": 10, "amf": 1, "smf": 4, "upf": 7, "ausf": 11, "udm": 12,
-                   "udr": 20, "pcf": 13, "nssf": 14, "chf": 15}
-        for nf in FREE_NFS:
-            text = (root / "source/config" / f"{nf}cfg.yaml").read_text()
-            for name, suffix in aliases.items():
-                text = text.replace(f"{name}.free5gc.org", f"127.0.0.{suffix}")
-            text = text.replace("mongodb://db:", "mongodb://127.0.0.1:").replace("cert/", str(root / "source/cert") + "/")
-            for field, old, new in (("mcc", "208", "001"), ("mnc", "93", "01")):
-                text = re.sub(rf'(?m)^(\s*(?:-\s*)?{field}:\s*)(?:"{old}"|{old})(?=\s|$)', lambda m: m[1] + json.dumps(new), text)
-            text = re.sub(r'(?m)^(\s*sd:\s*)([0-9a-fA-F]{6})(?=\s|$)', lambda m: m[1] + json.dumps(m[2]), text)
-            text = text.replace("10.60.0.0/16", "10.45.0.0/24").replace("- NEA0", "- NEA2")
-            # SBI authorization is outside this NAS/data-plane workload for all cores.
-            # Preserve the upstream authorization requirement.
-            if nf == "upf":
-                text = text.replace("# ifname: gtpif", "ifname: gtpif").replace("# natifname: eth0", "natifname: dn0")
-            (conf / f"{nf}cfg.yaml").write_text(text)
-        self.ns(self.core_ns, ["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "10.45.0.0/24", "-o", "dn0", "-j", "MASQUERADE"])
-        self.start_database()
-        rows = []
-        slice_ = {"sst": 1, "sd": "010203"}
-        for i in range(1, count + 1):
-            ue = f"imsi-{1010000000000 + i:015d}"
-            base = {"ueId": ue, "servingPlmnId": "00101"}
-            for collection, data in {
-                "authenticationData.authenticationSubscription": {"ueId": ue, "authenticationMethod": "5G_AKA", "encPermanentKey": KEY, "encOpcKey": OPC, "authenticationManagementField": "8000", "sequenceNumber": {"sqnScheme": "GENERAL", "sqn": f"{initial_sqn(i):012x}"}},
-                "provisionedData.amData": {**base, "gpsis": [], "nssai": {"defaultSingleNssais": [slice_], "singleNssais": [slice_]}, "subscribedUeAmbr": {"uplink": "1 Gbps", "downlink": "1 Gbps"}},
-                "provisionedData.smData": {**base, "singleNssai": slice_, "dnnConfigurations": {"internet": {"pduSessionTypes": {"defaultSessionType": "IPV4", "allowedSessionTypes": ["IPV4"]}, "sscModes": {"defaultSscMode": "SSC_MODE_1", "allowedSscModes": ["SSC_MODE_1"]}, "sessionAmbr": {"uplink": "1 Gbps", "downlink": "1 Gbps"}, "5gQosProfile": {"5qi": 9, "arp": {"priorityLevel": 8, "preemptCap": "NOT_PREEMPT", "preemptVuln": "PREEMPTABLE"}, "priorityLevel": 8}}}},
-                "provisionedData.smfSelectionSubscriptionData": {**base, "subscribedSnssaiInfos": {"01010203": {"dnnInfos": [{"dnn": "internet"}]}}},
-            }.items():
-                rows.append(["subscriptionData." + collection, data])
-            rows += [["policyData.ues.amData", {"ueId": ue, "subscCats": ["free5gc"]}],
-                     ["policyData.ues.smData", {"ueId": ue, "smPolicySnssaiData": {"01010203": {"snssai": slice_, "smPolicyDnnData": {"internet": {"dnn": "internet"}}}}}]]
-        js = "for (const [c,d] of " + json.dumps(rows) + ") db.getCollection(c).insertOne(d);"
-        self.provision_database("free5gc", js)
-        write(conf / "uerouting.yaml", {"info": {"version": "1.0.7", "description": "single UPF benchmark"}, "ueRoutingInfo": {}})
-        for nf in ["nrf", "upf", "udr", "udm", "ausf", "pcf", "nssf", "chf", "smf", "amf"]:
-            args = [root / "bin" / nf, "-c", conf / f"{nf}cfg.yaml"]
-            if nf == "smf":
-                args += ["-u", conf / "uerouting.yaml"]
-            self.start(f"core-{nf}", args, role="core")
-            if nf == "nrf":
-                self.wait(lambda: "8000" in self.ns(self.core_ns, ["ss", "-lntH"]))
-        self.wait(lambda: "38412" in self.ns(self.core_ns, ["ss", "-lSnH"]))
-        self.wait(lambda: "PFCP Association Setup Accepted" in (self.output / "core-smf.log").read_text())
+    def start_free5gc(self,count):
+        return free5gc.start(self,count)
 
     def radio(self, kind, count, core="open5gs"):
         if kind == "ueransim":
-            source = Path(self.config["radio_configs"])
-            gnb = (source / "gnb.yaml").read_text()
-            for field in ("linkIp", "ngapIp", "gtpIp"):
-                gnb = re.sub(rf"{field}: .*", f"{field}: 127.0.0.2", gnb)
-            (self.output / "gnb.yaml").write_text(gnb)
-            ue = (source / "ue.yaml").read_text().replace("- 127.0.0.1", "- 127.0.0.2")
-            for algorithm in ("IA1", "IA3", "EA1", "EA3"):
-                ue = ue.replace(f"{algorithm}: true", f"{algorithm}: false")
-            (self.output / "ue.yaml").write_text(ue)
-            bins = Path(self.config["ueransim"]) / "build"
-            self.start("gnb", [bins / "nr-gnb", "-c", self.output / "gnb.yaml"], role="gnb")
-            self.wait(lambda: "NG Setup procedure is successful" in (self.output / "gnb.log").read_text())
-            start = time.monotonic()
-            self.start("ue", [bins / "nr-ue", "-c", self.output / "ue.yaml", "-r", "-l", "--num-of-UE", str(count)], role="ue")
-            interfaces = [f"uesimtun{i}" for i in range(count)]
-            self.wait(lambda: all(i in self.ns(self.core_ns, ["ip", "-o", "-4", "addr"]) for i in interfaces))
-            elapsed = time.monotonic() - start
+            elapsed_ms,interfaces=ueransim.start(self,count,core)
         else:
             if not self.extension:raise ValueError('unknown radio adapter')
             elapsed_ms,interfaces=self.extension.start_radio(self,kind,count,core)
-            elapsed=elapsed_ms/1000
         # Both simulators reach the same timed boundary before this shared setup.
         before_move = json.loads(self.ns(self.core_ns, ["ip", "-j", "-4", "addr"]))
         assigned = {r["ifname"]: next((a["local"] for a in r["addr_info"] if a["family"] == "inet"), None) for r in before_move}
@@ -417,7 +298,7 @@ class Lab:
             self.ns(self.ue_ns, ["ip", "route", "add", "default", "dev", interface, "table", str(UE_ROUTE_TABLE_BASE + n)])
         write(self.output / "interfaces.json", {i: ips[i] for i in interfaces})
         write(self.output / "routes.json", {ns: json.loads(self.ns(ns, ["ip", "-j", "route", "show", "table", "all"])) for ns in (self.core_ns, self.ue_ns, self.dn_ns)})
-        return elapsed * 1000, [(i, ips[i]) for i in interfaces]
+        return elapsed_ms, [(i, ips[i]) for i in interfaces]
 
     def pids(self):
         result = {p.pid: role for p, role, name in self.processes if role and p.poll() is None}

@@ -10,11 +10,49 @@ ROOT = Path(__file__).resolve().parent
 
 def export(output):
     output.mkdir(parents=True, exist_ok=False)
-    mappings = {name: ROOT / name for name in ('benchmark.py', 'native_lab.py', 'bundle.py', 'experiments.py', 'campaign.py', 'test_benchmark.py', 'test_full_suite.py', 'test_neutrality.py', 'requirements.json', 'AGENTS.md', 'CLAUDE.md', 'LICENSE')}
-    for name in ('docs/methodology.md','open5gs_config.py','configs/profile.toml','configs/ue.yaml','configs/gnb.yaml'):
-        mappings[name]=ROOT/name
-    for name in ('.gitleaks.toml','.gitignore','package.json','scripts/check-agent-instructions.mjs','scripts/check-publication.py'):
-        if (ROOT/name).is_file():mappings[name]=ROOT/name
+    names = (
+        'benchmark.py',
+        'native_lab.py',
+        'bundle.py',
+        'experiments.py',
+        'campaign.py',
+        'requirements.json',
+        'AGENTS.md',
+        'CLAUDE.md',
+        'LICENSE',
+        'open5gs_config.py',
+        'configs/profile.toml',
+        'configs/ue.yaml',
+        'configs/gnb.yaml',
+        'docs/getting-started.md',
+        'docs/methodology.md',
+        'docs/adapter-contracts.md',
+        '.gitleaks.toml',
+        '.gitignore',
+        'package.json',
+        'scripts/check-agent-instructions.mjs',
+        'scripts/check-publication.py',
+        'adapters/__init__.py',
+        'adapters/common.py',
+        'adapters/free5gc.py',
+        'adapters/open5gs.py',
+        'adapters/open5gs_config.py',
+        'adapters/ueransim.py',
+        'runner/__init__.py',
+        'runner/cli.py',
+        'runner/contracts.py',
+        'runner/evidence.py',
+        'runner/execution.py',
+        'runner/reporting.py',
+        'runner/snapshot.py',
+        'runner/statistics.py',
+        'tests/__init__.py',
+        'tests/test_benchmark.py',
+        'tests/test_full_suite.py',
+        'tests/test_layout.py',
+        'tests/test_neutrality.py',
+    )
+    mappings = {name: ROOT / name for name in names}
     for name, source in mappings.items():
         target = output / name
         target.parent.mkdir(parents=True, exist_ok=True)

@@ -13,7 +13,8 @@ import sys
 import tempfile
 import unittest
 
-ROOT = pathlib.Path(__file__).resolve().parent
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT))
 
 
 class FullSuiteCommandTest(unittest.TestCase):
@@ -36,7 +37,6 @@ class FullSuiteCommandTest(unittest.TestCase):
             self.assertNotIn('/Users/', (output / 'docs/methodology.md').read_text())
 
     def test_distributed_run_and_reconstruction(self):
-        import test_benchmark
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             driver = root / 'driver.py'

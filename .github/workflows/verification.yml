@@ -30,4 +30,4 @@ jobs:
           (root/'gitleaks').chmod(0o700)
           PYSCAN
           "$RUNNER_TEMP/gitleaks" dir . --config .gitleaks.toml --redact --no-banner
-      - run: python3 -m unittest discover -s . -p 'test_*.py'
+      - run: python3 -m unittest discover -s tests -p 'test_*.py'

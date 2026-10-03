@@ -1,48 +1,12 @@
 # 5G benchmark method
 
-This public runner uses Python 3.11 or later and the standard library. The MIT license covers the runner and its public test inputs. Core, radio, and other programs keep their own licenses.
+Use [getting started](getting-started.md) for setup and commands. Use [adapter contracts](adapter-contracts.md) for public and external integrations. This method applies equally to every candidate.
 
 ## Required features
 
 A missing 3GPP feature is a core defect, not an efficiency gain. Read [the repository rules](../AGENTS.md). The default [requirement registry](../requirements.json) names the release, specification, clause, source, and test for each feature in scope. A failed or missing check fails the trial and blocks performance claims. An untested feature does not prove that the core lacks it. Add the missing test or fix the core. Do not reduce the requirement to obtain a pass.
 
 The default scope includes registration, PDU sessions, paging, mobility, IPv6, multiple sessions, slice isolation, session release, and deregistration. The current native driver does not verify all these features. Its runs will fail the required feature checks until this coverage is complete. These checks are not full 3GPP conformance certification. Declare optional features and their applicability before measurement; apply the same scope to each core.
-
-## Local verification
-
-```sh
-python3 -m unittest discover -s . -p 'test_*.py'
-```
-
-These tests use fixtures. They do not measure a core or radio. They check evidence retention, failed trials, missing features, candidate order, symmetric decisions, shard coverage, changed input rejection, and report reconstruction.
-
-## Prepare the public lab
-
-Live runs require Linux root, SCTP, TUN, network namespaces, Podman, iproute2, iptables, iperf3, ping, tcpdump, and tshark. Use reserved hosts. Do not use a production host. Build UERANSIM and Open5GS, and pull the database image before the campaign. Record source commits, compiler flags, versions, image digests, hardware, kernel, CPU affinity, and governor in a provenance receipt. The plan pins executable, configuration, library, database image, and requirement hashes.
-
-```sh
-sudo podman pull docker.io/library/mongo:8.0.12
-sudo python3 native_lab.py prepare --ueransim /srv/UERANSIM \
-  --open5gs-bin /srv/open5gs/install/bin --output /srv/plan \
-  --ue-counts 1 10 50 100 200 --seconds 30 --warmup 5 --repetitions 6
-sudo python3 benchmark.py run /srv/plan/plan.json --output /srv/run
-python3 benchmark.py report /srv/run
-```
-
-All output directories must be new. Do not overwrite prior runs. Add `--free5gc /srv/free5gc` for free5GC. This path needs `bin/<nf>`, `source/config/`, and `source/cert/`. Install and load the matching gtp5g kernel module. Upstream SBI authorization settings are retained. Authorization, rate enforcement, and persistence equivalence need separate verification. The public subscriber key and OPC are fixed test values. Never use customer credentials in these inputs.
-
-## Other cores and radios
-
-Use an external Python module with `--extension /srv/adapter.py --extension-config /srv/adapter.json`. Keep private adapters, binaries, configurations, and credentials outside this repository.
-
-The module has four functions:
-
-- `prepare(config)` returns `paths` (all files to pin), `identities` (exact core and radio identities), `cores`, `radios`, and `config`.
-- `start_core(lab, core, count)` provisions the same subscriber population and starts the core with `lab.start`.
-- `start_radio(lab, kind, count, core)` returns elapsed milliseconds and the UE TUN interface names.
-- `binaries(config, core, radio)` returns the core binary list and a map from UE/gNB role to radio binary path.
-
-Each adapter must meet the common evidence and feature contracts. An adapter cannot waive a required test. Use the source as the interface reference. Run the same public method against each adapter.
 
 ## Neutral controls
 
@@ -61,29 +25,6 @@ Attach readiness ends when all UE TUN addresses exist. Stack readiness includes 
 Resource samples run every 0.1 second. A sampled peak is not an exact continuous peak. RSS and PSS are separate readings. CPU efficiency uses the traffic window after warm-up. Reject host busy time above the declared limit, steal above 0.5 percent, or a generator thread above 90 percent of one CPU for one second. A host or generator limit prevents attribution to the core.
 
 Keep N2/N3 captures, UE logs, routes, resource samples, receiver logs, phase windows, result errors, and cleanup. Changed evidence prevents report reconstruction. A feature failure retains both the original driver measurement and the failed requirement result. Hashes detect changes; they do not independently prove that a live measurement occurred. Reports remain `publishable: false` pending independent review and rerun.
-
-## Full campaign and parallel execution
-
-```sh
-sudo python3 campaign.py prepare /srv/plan/plan.json --output /srv/campaign --soak-seconds 3600
-sudo python3 campaign.py run /srv/campaign/campaign.json --lane matrix --worker-index 0 --worker-count 3
-sudo python3 campaign.py run /srv/campaign/campaign.json --lane sweeps --worker-index 0 --worker-count 3
-sudo python3 campaign.py run /srv/campaign/campaign.json --lane capacity --worker-index 0 --worker-count 3
-sudo python3 campaign.py run /srv/campaign/campaign.json --lane stability --worker-index 0 --worker-count 3
-sudo python3 campaign.py run /srv/campaign/campaign.json --lane experiments
-```
-
-Use indices 1 and 2 on two other equal reserved hosts for the first four lanes. Run experiments on a fourth host. Copy pinned inputs to the same absolute paths. Whole repetition groups remain on one host. One host runs one active trial. Cache builds once. Each source or method change requires a new cohort. Derive expected coverage from the plans, not a past total.
-
-The matrix tests all declared UE counts and candidates. Sweeps use one UE at 25, 100, and 500 Mbit/s with 1200-byte packets, and 64, 256, and 1400-byte packets at 25 Mbit/s. Capacity tests endpoint counts at 1 Mbit/s per UE. Add a separate low-rate plan for intermediate counts. Keep its workload separate.
-
-Merge completed shards:
-
-```sh
-python3 benchmark.py merge /srv/shard-0 /srv/shard-1 /srv/shard-2 --output /srv/complete
-```
-
-Merge requires equal host classes, complete paired coverage, equal plans, and valid evidence hashes. Failed trials remain in the output. A partial shard cannot supply a competitive claim.
 
 ## Faults, capacity, and stability
 
