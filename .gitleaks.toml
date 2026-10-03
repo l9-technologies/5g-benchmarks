@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Exact public subscriber fixture values, including the wrong-key test"
+regexTarget = "secret"
+regexes = [
+  '^00112233445566778899aabbccddeeff$',
+  '^000102030405060708090a0b0c0d0e0f$',
+  '^10112233445566778899aabbccddeeff$',
+]

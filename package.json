@@ -1,0 +1,8 @@
+{
+  "name": "5g-benchmarks",
+  "private": true,
+  "scripts": {
+    "check:agent-instructions": "node scripts/check-agent-instructions.mjs",
+    "check:publication": "python3 scripts/check-publication.py"
+  }
+}

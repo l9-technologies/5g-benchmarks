@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "profile": "core-feature-parity-release-18",
+  "scope": "Common 3GPP core feature checks. Missing or unverified checks fail. This is not a complete 3GPP conformance suite.",
+  "requirements": [
+    {
+      "feature": "registration",
+      "release": "18",
+      "specification": "TS 23.501 v18.6.0",
+      "clause": "5.3.2",
+      "source": "https://www.etsi.org/deliver/etsi_ts/123500_123599/123501/18.06.00_60/ts_123501v180600p.pdf",
+      "test": "registration and security context"
+    },
+    {
+      "feature": "pdu_session",
+      "release": "18",
+      "specification": "TS 23.501 v18.6.0",
+      "clause": "5.6.1",
+      "source": "https://www.etsi.org/deliver/etsi_ts/123500_123599/123501/18.06.00_60/ts_123501v180600p.pdf",
+      "test": "PDU session establishment and bidirectional traffic"
+    },
+    {
+      "feature": "paging",
+      "release": "18",
+      "specification": "TS 23.501 v18.6.0",
+      "clause": "5.3.3.2.2",
+      "source": "https://www.etsi.org/deliver/etsi_ts/123500_123599/123501/18.06.00_60/ts_123501v180600p.pdf",
+      "test": "idle UE paging and resumed traffic"
+    },
+    {
+      "feature": "handover",
+      "release": "18",
+      "specification": "TS 23.501 v18.6.0",
+      "clause": "5.3.4",
+      "source": "https://www.etsi.org/deliver/etsi_ts/123500_123599/123501/18.06.00_60/ts_123501v180600p.pdf",
+      "test": "UE mobility with session continuity"
+    },
+    {
+      "feature": "ipv6",
+      "release": "18",
+      "specification": "TS 23.501 v18.6.0",
+      "clause": "5.6.10.1",
+      "source": "https://www.etsi.org/deliver/etsi_ts/123500_123599/123501/18.06.00_60/ts_123501v180600p.pdf",
+      "test": "IPv6 session and bidirectional receiver traffic"
+    },
+    {
+      "feature": "multiple_sessions",
+      "release": "18",
+      "specification": "TS 23.501 v18.6.0",
+      "clause": "5.6.1",
+      "source": "https://www.etsi.org/deliver/etsi_ts/123500_123599/123501/18.06.00_60/ts_123501v180600p.pdf",
+      "test": "two distinct PDU sessions and receiver paths"
+    },
+    {
+      "feature": "slice_isolation",
+      "release": "18",
+      "specification": "TS 23.501 v18.6.0",
+      "clause": "5.15",
+      "source": "https://www.etsi.org/deliver/etsi_ts/123500_123599/123501/18.06.00_60/ts_123501v180600p.pdf",
+      "test": "authorized and unauthorized slice behavior"
+    },
+    {
+      "feature": "session_release",
+      "release": "18",
+      "specification": "TS 23.501 v18.6.0",
+      "clause": "5.6.1",
+      "source": "https://www.etsi.org/deliver/etsi_ts/123500_123599/123501/18.06.00_60/ts_123501v180600p.pdf",
+      "test": "NAS release and tunnel removal"
+    },
+    {
+      "feature": "deregistration",
+      "release": "18",
+      "specification": "TS 23.501 v18.6.0",
+      "clause": "5.3.2",
+      "source": "https://www.etsi.org/deliver/etsi_ts/123500_123599/123501/18.06.00_60/ts_123501v180600p.pdf",
+      "test": "NAS deregistration and state removal"
+    }
+  ]
+}

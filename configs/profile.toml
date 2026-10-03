@@ -1,0 +1,37 @@
+[deployment]
+name = "benchmark-open5gs"
+description = "Open5GS SA core for an isolated local benchmark."
+
+[runtime]
+open5gs_version_prefix = "2.8.0"
+mongo_image = "docker.io/library/mongo:8.0.12"
+
+[radio]
+mcc = "001"
+mnc = "01"
+tac = 1
+sst = 1
+sd = "010203"
+apn = "internet"
+amf_n2_port = 38412
+upf_n3_port = 2152
+
+[user_plane]
+forwarding_mode = "default-lab-icmp-responder"
+ue_subnet = "10.45.0.0/24"
+ue_gateway = "10.45.0.1"
+verification_target = "10.0.0.1"
+nat_enabled = false
+mtu = 1500
+allowed_dnn = "internet"
+
+[ueransim_ue]
+# Public test subscriber. Never replace
+# these values with production subscriber credentials in repository files.
+supi = "imsi-001010000000001"
+key = "00112233445566778899aabbccddeeff"
+op = "000102030405060708090a0b0c0d0e0f"
+op_type = "OPC"
+amf = "8000"
+imei = "356938035643803"
+imei_sv = "4370816125816151"

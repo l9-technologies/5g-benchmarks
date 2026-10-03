@@ -1,0 +1,22 @@
+{
+  "files": {
+    "AGENTS.md": "10239a0cfc1412a427ad121b2a0e6d8febedac013f8b6a2466dc279523975905",
+    "CLAUDE.md": "10239a0cfc1412a427ad121b2a0e6d8febedac013f8b6a2466dc279523975905",
+    "LICENSE": "1e91f988107667291c72b1c3307ebdd4cb98065815bf7ac472319f45048304c6",
+    "benchmark.py": "aa6ba7f7f46665c6c9202e546ef5878c84058a0e69aeebd7cf0f23295297fa2f",
+    "bundle.py": "a188bf0f1670a7b7caf087a35c0200d0e6fda28a5cc6726dee9909945bd72fc4",
+    "campaign.py": "8c5cf6bd0756923f9e9025dc987546e55b5b807dd56635d9531776a6553bf0d2",
+    "configs/gnb.yaml": "db36c92d9adb43140df8770826a2681c6143467d8eebc73fef74ee7f59cd0a20",
+    "configs/profile.toml": "9ed9873d631af23808a2791f7ce4bb5fe9328f86c43495601837e67cf8382fe9",
+    "configs/ue.yaml": "4a5e7bca44243ae05decaeca68d1cb867f70c47c532b548688c72e5eeabdb915",
+    "docs/methodology.md": "ae0428a55a49ebdfb05a61b63453e9b823a9339f63a4f20a39913d57f61aeb26",
+    "experiments.py": "32ea67e22af4bc78fca976c10091339318022cd8cd26a642a2547c12bf1ecdc4",
+    "native_lab.py": "bcf7e2fad3516fae17cc4f2b1d1e59706adcdc2f90c970821e4585058ee7e412",
+    "open5gs_config.py": "40c6ef73fd35a8e7c02091ac6038e919323064e016ff363a69975474842a60cb",
+    "requirements.json": "a208e3073543c32a2d0744412a01d9813dd15363c97dc6d993a6f9e76cb869dd",
+    "test_benchmark.py": "ee6e168ed836c9534196e621aeb72b1116dd7183c67c8f0a517d1ea981dcaa6a",
+    "test_full_suite.py": "7de359181dafabd3babaafdde904d71d84b45a8aa4be6ae61ff3fb8346e20e0b",
+    "test_neutrality.py": "57784c95cbd245e13d619bb6da65f9dae967628f42624503143521a8f5f97f9d"
+  },
+  "schema_version": 1
+}

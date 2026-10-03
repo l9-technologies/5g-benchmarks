@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.env
+.env.*
+private/
+results/
+raw/
+receipts/
+*.pcap
+*.pcapng
+*.pem
+*.key
+*.tgz
+*.tar
+*.zip
+node_modules/
