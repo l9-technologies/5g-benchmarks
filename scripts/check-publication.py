@@ -7,6 +7,7 @@ import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 ALLOWED = {
+    '.github/workflows/ci-host-check.yml',
     '.github/workflows/verification.yml',
     '.gitignore',
     '.gitleaks.toml',
