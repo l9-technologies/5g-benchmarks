@@ -12,6 +12,7 @@ from .contracts import schedule,validate_measurement,validate_plan,measurement_f
 from .evidence import check_inputs,digest,evidence_hashes,object_hash,read,write,verified_trials
 from .reporting import make_report
 from .snapshot import save_report_tool
+from . import host_control
 
 def host_identity():
     result = {"system": platform.system(), "kernel": platform.release(), "machine": platform.machine(),
@@ -124,10 +125,20 @@ def run(plan_path, output, shard_index=0, shard_count=1, *, resume=False, max_tr
                 env = dict(os.environ, BENCH_RESULT_DIR=str(directory), BENCH_PLAN=str(output / "plan.json"),
                            BENCH_CANDIDATE=json.dumps(candidates[entry["candidate"]]), BENCH_UE_COUNT=str(entry["ue_count"]),
                            BENCH_REPETITION=str(entry["repetition"]))
-                code = invoke(plan["driver"], plan["cwd"], env, plan["timeout_seconds"], directory / "driver.log")
+                if 'host_control' in plan:
+                    (directory/'driver.log').touch()
+                    code=host_control.invoke(plan['host_control'],plan['driver'],plan['cwd'],env,plan['timeout_seconds'],directory/'driver.log',directory/'host')
+                else:
+                    code = invoke(plan["driver"], plan["cwd"], env, plan["timeout_seconds"], directory / "driver.log")
+                if 'host_control' in plan and not (directory/'measurement.json').exists():
+                    lease=read(directory/'host/lease.json')
+                    write(directory/'measurement.json',{'kind':plan['mode'],'cleanup_ok':bool(lease.get('restored')),
+                        'quality_errors':lease.get('quality_errors',[])+['host-controlled driver did not produce a measurement'],
+                        'features':{},'metrics':{},'evidence':['driver.log']})
                 if (directory / "measurement.json").exists():
                     m = read(directory / "measurement.json")
                     validate_measurement(m)
+                    if 'host_control' in plan:host_control.annotate(directory,m)
                     failures=measurement_failures(plan,m,entry['ue_count'])
                     if failures:
                         shutil.copyfile(directory/'measurement.json',directory/'driver-measurement.json')

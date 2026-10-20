@@ -2,6 +2,8 @@
 
 A study file selects cases, device counts, offered traffic, measurements, and confirmation sets. A lab file selects installed artifacts and adapters. Keep machine paths in the lab file, outside the repository. Keep secrets out of both files. Use Linux for live trials; the report and archive commands also work on macOS.
 
+See [shared lab control](host-control.md) for a saved host configuration, the preflight command, bounded reservations, restoration, and progress.
+
 ## Complete workflow
 
 After the one-time lab setup, use one command:

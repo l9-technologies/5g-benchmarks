@@ -103,6 +103,9 @@ def validate_plan(plan):
             raise ValueError("method 2 needs declared required feature checks")
     elif plan.get("method_version",1)!=1:
         raise ValueError("unknown method version")
+    if 'host_control' in plan:
+        from .host_control import validate
+        validate(plan['host_control'])
     return plan
 
 
