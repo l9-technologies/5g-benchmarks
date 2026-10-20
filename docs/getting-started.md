@@ -4,6 +4,8 @@ Use Python 3.11 or later. The runner uses the standard library. The MIT license 
 
 Read [the method](methodology.md) before measurement. Read [adapter contracts](adapter-contracts.md) before adding a core or radio. The native driver cannot yet verify the complete required feature scope. Missing checks fail trials and block performance claims.
 
+For repeatable Mini studies, use [study profiles](studies.md). The profile selects cases and confirmation sets; the lab inventory selects installed artifacts. `study check` tests the selected observations before a long run. `study run` collects the declared matrix and writes complete CSV reports. `study resume` verifies and continues saved progress. Read [the generator setup](generator.md) for loaded-delay measurements.
+
 ## Local verification
 
 ```sh

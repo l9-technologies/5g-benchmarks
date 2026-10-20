@@ -1,12 +1,15 @@
 """Command-line interface for the benchmark runner."""
 import argparse
+import fcntl
 import json
 from pathlib import Path
 import sys
+import tarfile
 from .contracts import schedule,validate_plan
 from .evidence import check_inputs,read
 from .execution import merge,run
 from .reporting import make_report
+from . import studies, archives
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -18,25 +21,61 @@ def main():
             p.add_argument("--output", required=True, type=Path)
             p.add_argument("--shard-index", type=int, default=0)
             p.add_argument("--shard-count", type=int, default=1)
+            p.add_argument("--resume", action="store_true")
+            p.add_argument("--max-trials", type=int)
     sub.add_parser("report").add_argument("directory", type=Path)
     p = sub.add_parser("merge")
     p.add_argument("directories", nargs="+", type=Path)
     p.add_argument("--output", required=True, type=Path)
+    study = sub.add_parser("study").add_subparsers(dest="study_action", required=True)
+    for name in ("prepare", "run", "check"):
+        p = study.add_parser(name)
+        p.add_argument("profile", type=Path)
+        p.add_argument("--lab", required=True, type=Path)
+        p.add_argument("--output", required=True, type=Path)
+        if name == "run": p.add_argument("--max-trials", type=int)
+    for name in ("resume", "status", "report", "archive"):
+        p = study.add_parser(name)
+        p.add_argument("directory", type=Path)
+        if name == "resume": p.add_argument("--max-trials", type=int)
+        if name == "archive": p.add_argument("--output", required=True, type=Path)
+    study.add_parser("verify-archive").add_argument("archive", type=Path)
     args = parser.parse_args()
     try:
+        if args.action == "study":
+            action = args.study_action
+            if action == "check":
+                result = studies.check(args.profile.resolve(), args.lab.resolve(), args.output.resolve())
+            elif action in ("prepare", "run"):
+                result = studies.prepare(args.profile.resolve(), args.lab.resolve(), args.output.resolve())
+                if action == "run": result = studies.execute(args.output.resolve(), args.max_trials)
+            elif action == "resume": result = studies.execute(args.directory.resolve(), args.max_trials)
+            elif action == "status": result = studies.status(args.directory.resolve())
+            elif action == "report": result = {"report": str(studies.report(args.directory.resolve()))}
+            elif action == "archive":
+                with (args.directory/'.study.lock').open('a') as lock:
+                    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    studies.status(args.directory.resolve())
+                    result = archives.create(args.directory.resolve(), args.output.resolve())
+            else: result = archives.verify(args.archive.resolve())
+            if action in ('run','resume') and result.get('complete') and args.max_trials is None:
+                directory=args.output if action=='run' else args.directory
+                result['report']=str(studies.report(directory.resolve()))
+            print(json.dumps(result))
+            return 2 if (result.get("complete") and result.get("failed")) or result.get("check_passed") is False else 0
         if args.action == "validate":
             plan = validate_plan(read(args.plan))
             check_inputs(plan)
             print(json.dumps({"status": "ready", "trials": len(schedule(plan))}))
             return 0
         if args.action == "run":
-            report = run(args.plan.resolve(), args.output.resolve(), args.shard_index, args.shard_count)
+            report = run(args.plan.resolve(), args.output.resolve(), args.shard_index, args.shard_count, resume=args.resume, max_trials=args.max_trials)
         elif args.action == "merge":
             report = merge([d.resolve() for d in args.directories], args.output.resolve())
         else:
             report = make_report(args.directory.resolve())
         print(json.dumps({"status": report["status"], "trial_count": report["trial_count"]}))
         return 2 if report["status"] == "incomplete" else 0
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, EOFError) as error:
         print(f"benchmark: {error}", file=sys.stderr)
         return 2

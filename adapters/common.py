@@ -28,3 +28,25 @@ def module(path, name):
     sys.modules[name] = loaded
     spec.loader.exec_module(loaded)
     return loaded
+
+
+def service_profile(config):
+    """One subscription and NAS contract for every native adapter."""
+    import re
+    cipher = config.get('cipher_algorithm', 2)
+    sd = config.get('slice_sd', '010203')
+    sqn = config.get('provisioned_sqn')
+    if type(cipher) is not int or cipher not in (0, 2):
+        raise ValueError('supported NAS cipher algorithms are 0 and 2')
+    if not isinstance(sd, str) or not re.fullmatch('[0-9a-fA-F]{6}', sd):
+        raise ValueError('slice SD must contain six hexadecimal digits')
+    if sqn is not None and (type(sqn) is not int or not 0 <= sqn < 2**48):
+        raise ValueError('SQN must be a 48-bit unsigned integer')
+    return {'plmn': '00101', 'slice': '1/' + sd.lower(), 'dnn': 'internet',
+            'security': 'NIA2/NEA' + str(cipher), 'cipher_algorithm': cipher,
+            'slice_sd': sd.lower(), 'session_ambr_mbps': 1000, 'provisioned_sqn': sqn}
+
+
+def subscriber_sqn(config, index):
+    value = service_profile(config)['provisioned_sqn']
+    return initial_sqn(index) if value is None else value

@@ -13,8 +13,10 @@ def neutral_comparisons(plan,groups):
             scope='self' if same else 'core' if a['identity']['radio']==b['identity']['radio'] else 'radio_pair' if a['identity']['core']==b['identity']['core'] else None
             if scope is None:continue
             aa,bb=[sorted(groups.get((count,c['id']),[]),key=lambda r:r['trial']['repetition']) for c in (a,b)]
-            for metric,(unit,direction) in METRICS.items():
+            for metric in plan.get('metrics', METRICS):
+                unit,direction=METRICS[metric]
                 reasons=[]
+                if any(r['measurement'].get('metric_notes',{}).get(metric) for r in aa+bb):reasons.append('metric_boundary_unverified')
                 if len(aa)!=plan['repetitions'] or len(bb)!=plan['repetitions']:reasons.append('missing_trial')
                 if any(r['status']!='passed' for r in aa+bb):reasons.append('failed_trial')
                 if any(r['measurement'].get('features',{}).get(f)!='passed' for r in aa+bb for f in plan['required_features']):reasons.append('required_feature_failed')

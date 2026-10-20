@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "name": "mini-weekly",
+  "repetitions": 10,
+  "seed": 1729,
+  "equivalence_percent": 5,
+  "timeout_seconds": 600,
+  "defaults": {
+    "duration_seconds": 30,
+    "warmup_seconds": 5,
+    "packet_bytes": 1200,
+    "offered_mbps_per_ue": 1,
+    "load_tolerance_percent": 5
+  },
+  "cases": [
+    {
+      "id": "fixed-load",
+      "ue_counts": [
+        1,
+        10
+      ],
+      "metrics": [
+        "attach_success_percent",
+        "stack_traffic_ready_ms",
+        "tcp_ul_mbps",
+        "tcp_dl_mbps",
+        "udp_ul_mbps",
+        "udp_dl_mbps",
+        "tcp_ul_rtt_p50_ms",
+        "tcp_ul_rtt_p95_ms",
+        "tcp_ul_rtt_p99_ms",
+        "tcp_dl_rtt_p50_ms",
+        "tcp_dl_rtt_p95_ms",
+        "tcp_dl_rtt_p99_ms",
+        "tcp_ul_ping_loss_percent",
+        "tcp_dl_ping_loss_percent",
+        "udp_ul_loss_percent",
+        "udp_dl_loss_percent",
+        "core_pss_peak_bytes"
+      ]
+    },
+    {
+      "id": "connection-batch",
+      "ue_counts": [
+        50
+      ],
+      "metrics": [
+        "attach_success_percent",
+        "registration_per_second",
+        "session_per_second",
+        "registration_p50_ms",
+        "session_p50_ms",
+        "stack_traffic_ready_ms"
+      ],
+      "traffic_modes": []
+    }
+  ],
+  "confirmation": [
+    "fixed-load",
+    "connection-batch"
+  ],
+  "required_features": [
+    "registration",
+    "pdu_session"
+  ]
+}

@@ -1,15 +1,29 @@
 """Read, hash, and verify immutable benchmark evidence."""
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
-from .contracts import selected_schedule,validate_measurement
+from .contracts import selected_schedule,validate_measurement,measurement_failures
 
 def read(path):
     return json.loads(Path(path).read_text(), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
 
 
 def write(path, value):
-    Path(path).write_text(json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n")
+    path = Path(path)
+    data = json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix="." + path.name, delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def digest(path):
@@ -63,11 +77,18 @@ def verified_trials(directory,plan,manifest):
         for name, expected_hash in result["hashes"].items():
             if evidence_hashes(trial, [name])[name] != expected_hash:
                 raise ValueError(f"evidence hash changed: {entry['id']}/{name}")
+        if result['status'] not in ('passed','failed'):raise ValueError('unknown trial status')
         m = result["measurement"]
         if m:
             validate_measurement(m)
+            if not set(m['evidence']+['measurement.json','driver.log'])<=result['hashes'].keys():raise ValueError('missing evidence hashes')
+            if result['status']=='passed' and (m['kind']!=plan['mode'] or not m['cleanup_ok'] or m['quality_errors'] or result['error']):
+                raise ValueError('passed status contradicts the saved measurement')
+            if result['status']=='passed' and measurement_failures(plan,m,entry['ue_count']):
+                raise ValueError('passed status lacks a required feature or delivery proof')
             if read(trial / "measurement.json") != m:
                 raise ValueError("measurement changed")
+        elif result["status"]=="passed":raise ValueError("passed result has no measurement")
         if result["status"] != "passed":
             problems.append(f"{entry['id']}: {result['error']}")
         rows.append(result)
