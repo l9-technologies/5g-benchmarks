@@ -1,0 +1,28 @@
+diff --git a/5g-libs/ngap/src/pdu.rs b/5g-libs/ngap/src/pdu.rs
+index 5eaa73b..bfe4792 100644
+--- a/5g-libs/ngap/src/pdu.rs
++++ b/5g-libs/ngap/src/pdu.rs
+@@ -190,6 +190,10 @@ impl PduSessionResourceSetupResponse {
+                         Some(PduSessionResourceFailedToSetupListSuRes::decode(data)?)
+                 }
+                 19 => criticality_diagnostics = Some(CriticalityDiagnostics::decode(data)?),
++                121 => {
++                    // Decode the optional location IE with the existing NGAP type.
++                    let _ = UserLocationInformation::decode(data)?;
++                }
+                 x => return Err(per_codec_error_new(format!("Unrecognised IE type {}", x))),
+             }
+             data.decode_align()?;
+diff --git a/qcore/src/subscriber_db.rs b/qcore/src/subscriber_db.rs
+index 8824706..782a28e 100644
+--- a/qcore/src/subscriber_db.rs
++++ b/qcore/src/subscriber_db.rs
+@@ -36,7 +36,7 @@ impl SubscriberDb {
+                 imsi.to_string(),
+                 Subscriber {
+                     sim_creds,
+-                    sqn: Sqn([0u8; 6]),
++                    sqn: Sqn([0, 0, 0, 0, 0, 32]),
+                 },
+             );
+ 

@@ -8,8 +8,8 @@ import signal
 import shutil
 import subprocess
 import time
-from .contracts import schedule,validate_measurement,validate_plan
-from .evidence import check_inputs,digest,evidence_hashes,object_hash,read,write
+from .contracts import schedule,validate_measurement,validate_plan,measurement_failures
+from .evidence import check_inputs,digest,evidence_hashes,object_hash,read,write,verified_trials
 from .reporting import make_report
 from .snapshot import save_report_tool
 
@@ -57,28 +57,59 @@ def invoke(argv, cwd, env, timeout, log):
             stop_group(proc, grace=30)
 
 
-def run(plan_path, output, shard_index=0, shard_count=1):
+def run(plan_path, output, shard_index=0, shard_count=1, *, resume=False, max_trials=None, report_on_finish=True):
     plan = validate_plan(read(plan_path))
     if not 1 <= shard_count <= plan["repetitions"] or not 0 <= shard_index < shard_count:
         raise ValueError("invalid shard index or count")
     check_inputs(plan)
-    output.mkdir(parents=True, exist_ok=False)
-    (output / "trials").mkdir()
-    save_report_tool(output / "report-tool.py")
-    write(output / "plan.json", plan)
-    manifest = {"plan_sha256": object_hash(plan), "schedule": schedule(plan), "host": host_identity(), "result_hashes": {},
-                "report_tool_sha256": digest(output / "report-tool.py")}
-    manifest["shard"] = {"index": shard_index, "count": shard_count}
-    if shard_count > 1:
-        manifest["schedule"] = [r for r in manifest["schedule"] if (r["repetition"] - 1) % shard_count == shard_index]
-    write(output / "manifest.json", manifest)
+    if max_trials is not None and (type(max_trials) is not int or max_trials < 1):
+        raise ValueError("max trials must be a positive integer")
     candidates = {c["id"]: c for c in plan["candidates"]}
     # All plans for this prepared lab use one lock, regardless of output path.
     lock_path = Path("/var/lock/5g-benchmark.lock") if plan["mode"] == "live" else Path(plan["cwd"]) / ".benchmark.lock"
     with lock_path.open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if resume:
+            manifest = read(output / "manifest.json")
+            if read(output / "plan.json") != plan or manifest.get("shard") != {"index": shard_index, "count": shard_count}:
+                raise ValueError("resume plan or shard changed")
+            if host_identity() != manifest["host"]:
+                raise ValueError("host identity changed; use a new cohort")
+            # A complete result can survive a crash just before its manifest
+            # checkpoint. Verify all raw evidence and cleanup before adoption.
+            pending={entry['id']:digest(output/'trials'/entry['id']/'result.json') for entry in manifest['schedule']
+                     if entry['id'] not in manifest['result_hashes'] and (output/'trials'/entry['id']/'result.json').is_file()}
+            candidate={**manifest,'result_hashes':{**manifest['result_hashes'],**pending}}
+            rows, _ = verified_trials(output, plan, candidate)
+            if pending:
+                if any(not row['measurement'].get('cleanup_ok') for row in rows if row['trial']['id'] in pending):
+                    raise ValueError('incomplete cleanup in an uncommitted result; review required')
+                folder=output/'recoveries';folder.mkdir(exist_ok=True)
+                write(folder/(str(time.time_ns())+'.json'),{'reason':'complete results recovered before manifest checkpoint','adopted_result_hashes':pending})
+                manifest=candidate;write(output/'manifest.json',manifest)
+            if any(not r["measurement"].get("cleanup_ok", False) for r in rows):
+                raise ValueError("resume refused: a previous trial has no successful cleanup receipt")
+            for entry in manifest["schedule"]:
+                directory = output / "trials" / entry["id"]
+                if directory.exists() and not (directory / "result.json").exists():
+                    raise ValueError("resume refused: interrupted trial needs cleanup review: " + entry["id"])
+        else:
+            output.mkdir(parents=True, exist_ok=False)
+            (output / "trials").mkdir()
+            save_report_tool(output / "report-tool.py")
+            write(output / "plan.json", plan)
+            manifest = {"plan_sha256": object_hash(plan), "schedule": schedule(plan), "host": host_identity(), "result_hashes": {},
+                        "report_tool_sha256": digest(output / "report-tool.py"), "shard": {"index": shard_index, "count": shard_count}}
+            if shard_count > 1:
+                manifest["schedule"] = [r for r in manifest["schedule"] if (r["repetition"] - 1) % shard_count == shard_index]
+            write(output / "manifest.json", manifest)
+        collected = 0
         for entry in manifest["schedule"]:
             directory = output / "trials" / entry["id"]
+            if entry["id"] in manifest["result_hashes"]:
+                continue
+            if max_trials is not None and collected >= max_trials:
+                break
             directory.mkdir()
             result = {"trial": entry, "plan_sha256": manifest["plan_sha256"], "status": "failed", "error": "", "measurement": {}, "hashes": {}}
             code = None
@@ -93,14 +124,15 @@ def run(plan_path, output, shard_index=0, shard_count=1):
                 if (directory / "measurement.json").exists():
                     m = read(directory / "measurement.json")
                     validate_measurement(m)
-                    if plan.get('method_version',1)==2:
-                        missing=[f for f in plan['required_features'] if m.get('features',{}).get(f)!='passed']
-                        if missing:
-                            shutil.copyfile(directory/'measurement.json',directory/'driver-measurement.json')
-                            m['evidence'].append('driver-measurement.json')
-                            m['quality_errors'].append('required feature checks failed: '+', '.join(missing))
-                            for f in missing:m['features'][f]='failed'
-                            write(directory/'measurement.json',m)
+                    failures=measurement_failures(plan,m,entry['ue_count'])
+                    if failures:
+                        shutil.copyfile(directory/'measurement.json',directory/'driver-measurement.json')
+                        m['evidence'].append('driver-measurement.json')
+                        m['quality_errors'].extend(failures)
+                        if plan.get('method_version',1)==2:
+                            for feature in plan['required_features']:
+                                if m.get('features',{}).get(feature)!='passed':m['features'][feature]='failed'
+                        write(directory/'measurement.json',m)
                     result["measurement"] = m
                     result["hashes"] = evidence_hashes(directory, m["evidence"] + ["measurement.json", "driver.log"])
                     if m["kind"] != plan["mode"] or not m["cleanup_ok"] or m["quality_errors"]:
@@ -116,16 +148,18 @@ def run(plan_path, output, shard_index=0, shard_count=1):
             except KeyboardInterrupt:
                 code = 130
                 result["error"] = "run interrupted"
+            result["driver_return_code"]=code
             write(directory / "result.json", result)
             manifest["result_hashes"][entry["id"]] = digest(directory / "result.json")
             write(output / "manifest.json", manifest)
+            collected += 1
             label = "measurement saved" if result["status"] == "passed" else "failed"
             print(f"{entry['id']}: {label}; {len(result['measurement'].get('metric_errors', {}))} failed metrics", flush=True)
             # Absence of a cleanup receipt is unsafe. Preserve this failure and
             # all planned missing trials, then stop before starting another lab.
             if code == 130 or not result["measurement"].get("cleanup_ok", False):
                 break
-    return make_report(output)
+    return make_report(output) if report_on_finish else {"trial_count": len(manifest["result_hashes"])}
 
 
 def host_class(host):

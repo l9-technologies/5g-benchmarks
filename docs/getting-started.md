@@ -2,7 +2,17 @@
 
 Use Python 3.11 or later. The runner uses the standard library. The MIT license covers the runner and public test inputs. Other programs keep their own licenses.
 
+The native lab and its adapter checks also need PyYAML and pyroute2. Install the pinned packages in the lab's Python environment before verification:
+
+```sh
+python3 -m pip install -r requirements-lab.txt
+```
+
+Use that same Python executable for preparation and collection. The plan records the installed package files. Report and archive commands do not need these packages.
+
 Read [the method](methodology.md) before measurement. Read [adapter contracts](adapter-contracts.md) before adding a core or radio. The native driver cannot yet verify the complete required feature scope. Missing checks fail trials and block performance claims.
+
+For repeatable Mini studies, use [study profiles](studies.md). The profile selects cases and confirmation sets; the lab inventory selects installed artifacts. `study check` tests the selected observations before a long run. `study run` collects the declared matrix and writes complete CSV reports. `study resume` verifies and continues saved progress. Read [the generator setup](generator.md) for loaded-delay measurements.
 
 ## Local verification
 

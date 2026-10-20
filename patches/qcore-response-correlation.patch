@@ -1,0 +1,68 @@
+--- a/5g-libs/xxap/src/transaction.rs
++++ b/5g-libs/xxap/src/transaction.rs
+@@ -15,6 +15,8 @@
+     type Request: Send + Sync + 'static + Debug;
+     type Success;
+     type Failure;
++    fn request_key(_request: &Self::Request) -> Option<(u64, u64)> { None }
++    fn response_key(_bytes: &[u8]) -> Option<(u64, u64)> { None }
+     fn encode_request(r: Self::Request) -> Result<Vec<u8>, PerCodecError>;
+     fn decode_response(bytes: &[u8]) -> Result<Self::Success, RequestError<Self::Failure>>;
+     async fn call_provider<T: RequestProvider<Self>>(
+--- a/5g-libs/xxap/src/net/stack.rs
++++ b/5g-libs/xxap/src/net/stack.rs
+@@ -91,11 +91,13 @@
+         r: P::Request,
+         logger: &Logger,
+     ) -> Result<ResponseAction<P::Success>, RequestError<P::Failure>> {
++        let key = P::request_key(&r);
+         let bytes = P::encode_request(r)?;
+ 
+         // Create a channel to receive the response.
+         let (sender, receiver) = async_channel::bounded::<Vec<u8>>(1);
+-        let match_fn = |m: &Message| (m[0] != 0) && (m[1] == P::CODE);
++        let match_fn = move |m: &Message| m.len() >= 2 && (m[0] != 0) && (m[1] == P::CODE)
++            && key == P::response_key(m);
+         self.pending_requests
+             .lock()
+             .await
+--- a/5g-libs/ngap/src/top_pdu.rs
++++ b/5g-libs/ngap/src/top_pdu.rs
+@@ -562,6 +562,19 @@
+     type Failure = InitialContextSetupFailure;
+     const CODE: u8 = 14;
+ 
++    fn request_key(request: &Self::Request) -> Option<(u64, u64)> {
++        Some((request.amf_ue_ngap_id.0 as u64, request.ran_ue_ngap_id.0 as u64))
++    }
++    fn response_key(bytes: &[u8]) -> Option<(u64, u64)> {
++        match Self::TopPdu::from_bytes(bytes).ok()? {
++            NgapPdu::SuccessfulOutcome(SuccessfulOutcome::InitialContextSetupResponse(r)) =>
++                Some((r.amf_ue_ngap_id.0 as u64, r.ran_ue_ngap_id.0 as u64)),
++            NgapPdu::UnsuccessfulOutcome(UnsuccessfulOutcome::InitialContextSetupFailure(r)) =>
++                Some((r.amf_ue_ngap_id.0 as u64, r.ran_ue_ngap_id.0 as u64)),
++            _ => None,
++        }
++    }
++
+     async fn call_provider<T: RequestProvider<Self>>(
+         provider: &T,
+         req: InitialContextSetupRequest,
+@@ -1049,6 +1062,17 @@
+     type Success = PduSessionResourceSetupResponse;
+     type Failure = ();
+     const CODE: u8 = 29;
++
++    fn request_key(request: &Self::Request) -> Option<(u64, u64)> {
++        Some((request.amf_ue_ngap_id.0 as u64, request.ran_ue_ngap_id.0 as u64))
++    }
++    fn response_key(bytes: &[u8]) -> Option<(u64, u64)> {
++        match Self::TopPdu::from_bytes(bytes).ok()? {
++            NgapPdu::SuccessfulOutcome(SuccessfulOutcome::PduSessionResourceSetupResponse(r)) =>
++                Some((r.amf_ue_ngap_id.0 as u64, r.ran_ue_ngap_id.0 as u64)),
++            _ => None,
++        }
++    }
+ 
+     async fn call_provider<T: RequestProvider<Self>>(
+         provider: &T,

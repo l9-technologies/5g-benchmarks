@@ -1,0 +1,32 @@
+"""Failure cases before implementation: missing/duplicate clocks or packets,
+clock steps, probes outside useful load, censored replies, unequal counters.
+This parser isolates evidence validation; live capture remains an E2E gate.
+"""
+import unittest
+from adapters.probe_window import verify
+
+def clock(event,seconds):
+    return {'event':event,'epoch_ns':int(seconds*1e9),'monotonic_before_ns':int((seconds-90)*1e9),'monotonic_after_ns':int((seconds-90)*1e9)+100}
+class ProbeWindow(unittest.TestCase):
+    def inputs(self):
+        events=[[clock('warmup_end',100),clock('test_end',130)]]
+        packets='102\t10.45.0.2\t192.0.2.1\t8\t11\t1\n102.001\t192.0.2.1\t10.45.0.2\t0\t11\t1\n103\t10.45.0.2\t192.0.2.1\t8\t11\t2\n'
+        return events,packets,{'10.45.0.2':{'sent':2,'received':1}}
+    def test_complete_reply_and_loss_use_all_requests(self):
+        events,packets,counts=self.inputs();result=verify(events,packets,counts)
+        self.assertAlmostEqual(result['rtts_ms'][0],1);self.assertEqual(result['sent'],2);self.assertEqual(result['received'],1)
+    def test_missing_clock_and_packet_fail(self):
+        events,packets,counts=self.inputs()
+        for bad in [[],[events[0][:1]],[events[0]+[events[0][0]]]]:
+            with self.assertRaises(ValueError):verify(bad,packets,counts)
+        with self.assertRaises(ValueError):verify(events,'',counts)
+    def test_outside_load_and_late_reply_fail_without_clipping(self):
+        events,packets,counts=self.inputs()
+        for bad in [packets.replace('102\t','99\t'),packets.replace('102.001\t','131\t')]:
+            with self.assertRaises(ValueError):verify(events,bad,counts)
+    def test_clock_step_and_duplicate_reply_fail(self):
+        events,packets,counts=self.inputs();events[0][1]['epoch_ns']+=10000000
+        with self.assertRaises(ValueError):verify(events,packets,counts)
+        events,packets,counts=self.inputs()
+        with self.assertRaises(ValueError):verify(events,packets+packets.splitlines()[1]+'\n',counts)
+if __name__=='__main__':unittest.main()

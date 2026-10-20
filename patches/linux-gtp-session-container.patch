@@ -1,0 +1,82 @@
+--- a/drivers/net/gtp.c
++++ b/drivers/net/gtp.c
+@@ -45,6 +45,7 @@
+ 		struct {
+ 			u32	i_tei;
+ 			u32	o_tei;
++			u8	qfi;
+ 		} v1;
+ 	} u;
+ 	u8			gtp_version;
+@@ -223,6 +224,13 @@
+ 	skb_reset_network_header(skb);
+ 	skb_reset_mac_header(skb);
+ 
++	/* The fixed benchmark gives inner UE/TCP receive work two guest CPUs. */
++	if (role == GTP_ROLE_SGSN) {
++		u32 bucket = ntohl(pctx->ms_addr_ip4.s_addr) % 2;
++		u32 hash = ((u64)(2 * bucket + 1) * 0x80000000ULL) / 2;
++		skb_set_hash(skb, hash, PKT_HASH_TYPE_L4);
++	}
++
+ 	skb->dev = pctx->dev;
+ 
+ 	dev_sw_netstats_rx_add(pctx->dev, skb->len);
+@@ -608,6 +616,22 @@
+ 	if (!pskb_may_pull(skb, hdrlen))
+ 		return -1;
+ 
++	gtp1 = (struct gtp1_header *)(skb->data + sizeof(struct udphdr));
++
++	/* Skip the bounded extension chain before the inner IP address check. */
++	if (gtp1->flags & 0x04) {
++		u8 next = skb->data[hdrlen - 1];
++		while (next) {
++			unsigned int length;
++			if (!pskb_may_pull(skb, hdrlen + 1))
++				return -1;
++			length = skb->data[hdrlen] * 4;
++			if (length < 4 || !pskb_may_pull(skb, hdrlen + length))
++				return -1;
++			next = skb->data[hdrlen + length - 1];
++			hdrlen += length;
++		}
++	}
+ 	gtp1 = (struct gtp1_header *)(skb->data + sizeof(struct udphdr));
+ 
+ 	pctx = gtp1_pdp_find(gtp, ntohl(gtp1->tid));
+@@ -754,6 +778,16 @@
+ 	int payload_len = skb->len;
+ 	struct gtp1_header *gtp1;
+ 
++	/* TS 29.281 5.2.2.7 and TS 38.415 5.5.3.3: UL session QFI. */
++	if (pctx->u.v1.qfi) {
++		u8 *extension = skb_push(skb, 8);
++		memset(extension, 0, 8);
++		extension[3] = 0x85;
++		extension[4] = 1;
++		extension[5] = 0x10;
++		extension[6] = pctx->u.v1.qfi;
++		payload_len += 8;
++	}
+ 	gtp1 = skb_push(skb, sizeof(*gtp1));
+ 
+ 	/* Bits    8  7  6  5  4  3  2	1
+@@ -762,7 +796,7 @@
+ 	 *	  +--+--+--+--+--+--+--+--+
+ 	 *	    0  0  1  1	1  0  0  0
+ 	 */
+-	gtp1->flags	= 0x30; /* v1, GTP-non-prime. */
++	gtp1->flags	= pctx->u.v1.qfi ? 0x34 : 0x30; /* v1, GTP-non-prime. */
+ 	gtp1->type	= GTP_TPDU;
+ 	gtp1->length	= htons(payload_len);
+ 	gtp1->tid	= htonl(pctx->u.v1.o_tei);
+@@ -1329,6 +1363,8 @@
+ 	case GTP_V1:
+ 		pctx->u.v1.i_tei = nla_get_u32(info->attrs[GTPA_I_TEI]);
+ 		pctx->u.v1.o_tei = nla_get_u32(info->attrs[GTPA_O_TEI]);
++		pctx->u.v1.qfi = info->attrs[GTPA_FLOW] ?
++			nla_get_u16(info->attrs[GTPA_FLOW]) : 0;
+ 		break;
+ 	default:
+ 		break;

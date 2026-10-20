@@ -4,7 +4,12 @@ import math
 import random
 
 # Units and event boundaries are shared by every live adapter.
+OPTIONAL_METRICS = {
+    **{f"{part}_{name}": ("UEs" if name.endswith("ues") else "messages", "lower" if name in ("rejected_ues","pending_ues","request_messages") else "higher") for part in ("registration", "session") for name in ("attempted_ues", "successful_ues", "rejected_ues", "pending_ues", "request_messages")},
+    **{f"{part}_success_percent": ("percent", "higher") for part in ("registration", "session")},
+}
 METRICS = {
+    **OPTIONAL_METRICS,
     **{f"{mode}_host_cpu_seconds_per_gbit": ("host CPU seconds/Gbit", "lower") for mode in ("tcp_ul", "tcp_dl", "udp_ul", "udp_dl")},
     "host_idle_memory_used_bytes": ("host bytes", "lower"),
     "host_memory_used_peak_bytes": ("host bytes", "lower"),
@@ -30,6 +35,7 @@ METRICS = {
         "binary_bytes": ("bytes", "lower"),
     }.items()},
 }
+USER_PLANES = ("ueransim","linux-gtp")
 FEATURES = ("registration", "pdu_session", "n2_ngap", "n3_gtpu", "external_n6",
             "tcp", "udp", "distinct_ue_addresses", "multi_ue_isolation", "cleanup", "paging", "handover",
             "session_release", "deregistration", "restart_recovery", "ipv6",
@@ -52,6 +58,14 @@ def validate_plan(plan):
     if any(type(plan[key]) is not int for key in ("repetitions", "seed")):
         raise ValueError("repetitions and seed must be integers")
     protocol = plan["protocol"]
+    if "metrics" in plan and (not isinstance(plan["metrics"], list) or not plan["metrics"] or
+            len(set(plan["metrics"])) != len(plan["metrics"]) or set(plan["metrics"]) - METRICS.keys()):
+        raise ValueError("planned metrics must be distinct known metric names")
+    if 'traffic_modes' in protocol and (not isinstance(protocol['traffic_modes'],list) or len(set(protocol['traffic_modes']))!=len(protocol['traffic_modes']) or set(protocol['traffic_modes'])-{'tcp_ul','tcp_dl','udp_ul','udp_dl'}):
+        raise ValueError('unknown or duplicate traffic mode')
+    for name,low,high in [('probe_interval_seconds',.001,1),('resource_sample_seconds',.01,5),('load_tolerance_percent',0,10)]:
+        if name in protocol:number(protocol[name],name,low,high)
+    if 'user_plane' in protocol and protocol['user_plane'] not in USER_PLANES:raise ValueError('unknown user-plane implementation')
     counts = protocol["ue_counts"]
     if not counts or len(set(counts)) != len(counts) or any(type(n) is not int or not 1 <= n <= 512 for n in counts):
         raise ValueError("UE counts must be distinct integers from 1 through 512")
@@ -124,12 +138,14 @@ def validate_measurement(m):
         raise ValueError("invalid feature result")
     if not isinstance(m.get("evidence"), list) or not m["evidence"]:
         raise ValueError("measurement needs evidence")
+    notes=m.get('metric_notes',{})
+    if not isinstance(notes,dict) or set(notes)-METRICS.keys() or any(not isinstance(v,str) or not v for v in notes.values()):raise ValueError('invalid metric notes')
     errors = m.get("metric_errors", {})
     if not isinstance(errors, dict) or set(errors) - METRICS.keys() or any(not isinstance(v, str) or not v for v in errors.values()):
         raise ValueError("invalid metric errors")
     if set(errors) & m["metrics"].keys():
         raise ValueError("a metric cannot have both a value and an error")
-    if m["kind"] == "live" and not m["quality_errors"] and set(m["metrics"]) | set(errors) != set(METRICS):
+    if m["kind"] == "live" and not m["quality_errors"] and not (METRICS.keys()-OPTIONAL_METRICS.keys()) <= (m["metrics"].keys() | errors.keys()):
         raise ValueError("live measurement is missing required metric outcomes")
 
 
@@ -137,13 +153,29 @@ def balanced_repetitions(candidate_count,minimum=6):
     return math.ceil(max(6,minimum)/candidate_count)*candidate_count
 
 
+def measurement_failures(plan,measurement,count):
+    failures=[]
+    if plan.get('method_version',1)==2:
+        missing=[f for f in plan['required_features'] if measurement.get('features',{}).get(f)!='passed']
+        if missing:failures.append('required feature checks failed: '+', '.join(missing))
+    protocol=plan['protocol']
+    if 'load_tolerance_percent' in protocol:
+        expected=count*protocol['offered_mbps_per_ue'];fraction=protocol['load_tolerance_percent']/100
+        for mode in protocol.get('traffic_modes',('tcp_ul','tcp_dl','udp_ul','udp_dl')):
+            actual=measurement.get('metrics',{}).get(mode+'_mbps')
+            if actual is None or not expected*(1-fraction)<=actual<=expected*(1+fraction):
+                failures.append(f'{mode} delivered load differs: expected {expected} Mbit/s within {protocol["load_tolerance_percent"]}%; received {actual}')
+    return failures
+
+
 def comparison_reasons(metric,aa,bb,scope):
     keys=['service_profile']
-    if metric.startswith(('registration_','attach_','stack_')):keys.append('authentication_profile')
+    if metric.startswith(('registration_','session_','attach_','stack_')):keys.append('authentication_profile')
     if metric.startswith(('core_','host_')) or '_host_cpu_' in metric:keys.append('durability_profile')
     if metric.startswith(('core_','host_','ue_','gnb_')) or '_host_cpu_' in metric:keys.append('resource_scope')
     if scope=='radio_pair':keys.append('radio_capability_profile')
     reasons=[]
+    if any(r['measurement'].get('metric_notes',{}).get(metric) for r in aa+bb):reasons.append('metric_boundary_unverified')
     if metric.endswith('binary_bytes') or metric.startswith('core_') or '_core_cpu_' in metric:
         reasons.append('incomplete_resource_boundary')
     for key in keys:

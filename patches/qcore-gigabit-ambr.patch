@@ -1,0 +1,43 @@
+--- a/qcore/src/protocols/ngap/build.rs
++++ b/qcore/src/protocols/ngap/build.rs
+@@ -184,8 +184,8 @@
+ ) -> Result<Vec<u8>> {
+     Ok(PduSessionResourceSetupRequestTransfer {
+         pdu_session_aggregate_maximum_bit_rate: Some(PduSessionAggregateMaximumBitRate {
+-            pdu_session_aggregate_maximum_bit_rate_dl: BitRate(768_000_000),
+-            pdu_session_aggregate_maximum_bit_rate_ul: BitRate(768_000_000),
++            pdu_session_aggregate_maximum_bit_rate_dl: BitRate(1_000_000_000),
++            pdu_session_aggregate_maximum_bit_rate_ul: BitRate(1_000_000_000),
+         }),
+         ul_ngu_up_tnl_information: UpTransportLayerInformation::GtpTunnel(GtpTunnel {
+             transport_layer_address: transport_layer_address.clone(),
+@@ -261,8 +261,8 @@
+ 
+ fn ue_aggregate_maximum_bit_rate() -> UeAggregateMaximumBitRate {
+     UeAggregateMaximumBitRate {
+-        ue_aggregate_maximum_bit_rate_dl: BitRate(768_000_000),
+-        ue_aggregate_maximum_bit_rate_ul: BitRate(768_000_000),
++        ue_aggregate_maximum_bit_rate_dl: BitRate(1_000_000_000),
++        ue_aggregate_maximum_bit_rate_ul: BitRate(1_000_000_000),
+     }
+ }
+ 
+--- a/qcore/src/protocols/nas/build.rs
++++ b/qcore/src/protocols/nas/build.rs
+@@ -190,13 +190,10 @@
+ }
+ 
+ fn session_ambr() -> NasSessionAmbr {
+-    // TODO - make configurable
+     NasSessionAmbr::new(vec![
+-        // TS24.501, 9.11.4.14
+-        0x0a, // Unit for downlink = 256Mbps
+-        0x00, 0x03, // Downlink session AMBR = 768Mbps
+-        0x0a, // Unit for uplink = 256Mbps
+-        0x00, 0x03, // Uplink session AMBR = 768Mbps
++        // TS 24.501 9.11.4.14: 1000 units of 1 Mbit/s in each direction.
++        0x06, 0x03, 0xe8,
++        0x06, 0x03, 0xe8,
+     ])
+ }
+ 
