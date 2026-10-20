@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parent
 def export(output):
     output.mkdir(parents=True, exist_ok=False)
     names = (
+        'requirements-lab.txt',
         'benchmark.py',
         'native_lab.py',
         'bundle.py',
