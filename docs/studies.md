@@ -2,6 +2,31 @@
 
 A study file selects cases, device counts, offered traffic, measurements, and confirmation sets. A lab file selects installed artifacts and adapters. Keep machine paths in the lab file, outside the repository. Keep secrets out of both files. Use Linux for live trials; the report and archive commands also work on macOS.
 
+## Complete workflow
+
+After the one-time lab setup, use one command:
+
+```sh
+sudo python3 benchmark.py study collect profiles/mini-weekly.json --lab /opt/benchmark/lab.json --output /opt/benchmark/results/week-001
+```
+
+This saves a clean runner export and the selected inputs. It prepares the lab once, checks every declared case, runs the main and confirmation sets, writes both verification and collection reports, and creates `week-001.tgz` beside the output directory. It reads back every archive member before it saves `week-001.archive.json`. The archive includes the saved runner, plans, verification trials, timed trials, failed results, reports, and standalone report tools. It does not copy external private adapters or core binaries.
+
+Resume uses the saved source and inputs:
+
+```sh
+sudo python3 benchmark.py study resume /opt/benchmark/results/week-001
+python3 benchmark.py study status /opt/benchmark/results/week-001
+```
+
+A failed verification stops before timed collection. Its evidence and missing tests remain in the reports and archive. Resume does not retry that failure to obtain a pass. Use a new output after a method or implementation correction. A timed failure remains in the completed report; it does not erase the rest of the planned trials. An unsuccessful cleanup still stops execution for review. Exit 2 indicates failures or a command that did not finish.
+
+Use `--max-trials 5` with `collect` or `resume` for a bounded execution window. The limit includes new verification and timed trials. A recovered checkpoint does not consume another trial. Report and archive work waits for an unbounded `resume`, so it can run outside the timed reservation. This limit does not reserve a host or establish a valid paired measurement window; keep the host admission and quality controls. The workflow does not pause CI or send chat messages.
+
+The returned JSON names the current phase, verification coverage, collection coverage, reports, and archive. Repeated resume after completion verifies the saved evidence and returns the same final report and archive. The archive is a snapshot; a later manual report does not replace it. Use `study archive` with a new destination to save later additions.
+
+The commands below remain available for individual steps and existing studies.
+
 For an existing pinned plan, the lab file is:
 
 ```json

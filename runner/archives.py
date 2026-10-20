@@ -8,7 +8,7 @@ from .evidence import digest
 
 INDEX = '_archive_index.json'
 
-def verify(path):
+def verify(path,expected_directory=None):
     with tarfile.open(path, 'r:gz') as archive:
         members = archive.getmembers()
         names = [m.name for m in members]
@@ -21,6 +21,11 @@ def verify(path):
         index = json.load(archive.extractfile(INDEX))
         if set(names) != set(index) | {INDEX}:
             raise ValueError('archive member coverage changed')
+        if expected_directory is not None:
+            paths=list(expected_directory.rglob('*'))
+            if any(p.is_symlink() for p in paths):raise ValueError('archive source contains symbolic links')
+            expected={str(p.relative_to(expected_directory)):digest(p) for p in paths if p.is_file()}
+            if index!=expected:raise ValueError('existing archive differs from the workflow snapshot')
         for name, expected in index.items():
             stream = archive.extractfile(name)
             actual = hashlib.file_digest(stream, 'sha256').hexdigest()
