@@ -23,6 +23,15 @@ def command(args, timeout=60, check=True, env=None):
     return result.stdout
 
 
+def validate_runtime_inputs(paths, executables):
+    for path in paths:
+        if not path.is_file():
+            raise ValueError('missing runtime input: '+str(path))
+    for path in executables:
+        if not path.is_file() or not os.access(path,os.X_OK):
+            raise ValueError('build or install the executable: '+str(path))
+
+
 def module(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
     loaded = importlib.util.module_from_spec(spec)

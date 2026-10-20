@@ -215,22 +215,23 @@ def prepare(args):
         assigned=[c for cpus in allocations.values() for c in cpus]
         if len(set(assigned))!=len(assigned) or not set(assigned)<=os.sched_getaffinity(0):raise ValueError('CPU roles must be disjoint and available')
     paths=[iperf]
+    executables=[iperf]
     if args.iperf_build_receipt:paths += [args.iperf_build_receipt.resolve(),ROOT/'patches/iperf-3.16-phase-clock.patch',ROOT/'scripts/build-iperf.py']
     if args.runtime_environment:paths.append(args.runtime_environment.resolve())
     if args.user_plane=='linux-gtp':
         paths += [kernel]+sorted(Path(pyroute2.__file__).resolve().parent.rglob('*.py'))+sorted(Path(pyroute2.__file__).resolve().parent.rglob('*.so'))
-    paths += [ueran / "build" / f"nr-{node}" for node in ("ue", "gnb")]
+    executables += [ueran / "build" / f"nr-{node}" for node in ("ue", "gnb")]
     if args.free5gc and "free5gc" in cores:
         import yaml
         paths += sorted(Path(yaml.__file__).resolve().parent.rglob("*.py")) + sorted(Path(yaml.__file__).resolve().parent.rglob("*.so"))
-        paths += [args.free5gc / "bin" / nf for nf in FREE_NFS]
-    if "open5gs" in cores:paths += [Path(args.open5gs_bin).resolve() / f"open5gs-{nf}d" for nf in OPEN_NFS]
+        executables += [args.free5gc / "bin" / nf for nf in FREE_NFS]
+    if "open5gs" in cores:executables += [Path(args.open5gs_bin).resolve() / f"open5gs-{nf}d" for nf in OPEN_NFS]
     for name in ("ella","qcore"):
-        if name in cores:paths.append(Path(getattr(args,name+"_bin")).resolve())
-    paths += [Path(shutil.which(tool)).resolve() for tool in tools] + [Path(sys.executable).resolve()]
-    for p in paths:
-        if not p.is_file() or not os.access(p, os.X_OK):
-            raise ValueError(f"build or install the executable: {p}")
+        if name in cores:executables.append(Path(getattr(args,name+"_bin")).resolve())
+    executables += [Path(shutil.which(tool)).resolve() for tool in tools] + [Path(sys.executable).resolve()]
+    paths += executables
+    from adapters.common import validate_runtime_inputs
+    validate_runtime_inputs(paths,executables)
     paths+=list(added['paths'])
     if args.extension:paths.append(args.extension.resolve())
     if args.extension_config:paths.append(args.extension_config.resolve())
@@ -254,6 +255,7 @@ def prepare(args):
     if extension:
         for core in added['cores']:
             binaries,_=extension.binaries(added['config'],core,'ueransim');programs[core]=binaries
+            if core in cores:validate_runtime_inputs(binaries,binaries)
     for core,files in programs.items():
         for path in files:program_env[path.resolve()]=runtime_environment.get('cores',{}).get(core,{})
     # Pin runtime libraries with the same loader environment as the core.

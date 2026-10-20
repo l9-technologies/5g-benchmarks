@@ -11,6 +11,15 @@ import unittest
 from adapters import common
 
 class NativeProfile(unittest.TestCase):
+    def test_input_permissions_distinguish_programs_from_data(self):
+        from adapters.common import validate_runtime_inputs
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);program=root/'program';program.write_text('fixture');program.chmod(0o755)
+            receipt=root/'receipt.json';receipt.write_text('{}');receipt.chmod(0o644)
+            validate_runtime_inputs([program,receipt],[program])
+            with self.assertRaises(ValueError):validate_runtime_inputs([program,receipt],[receipt])
+            with self.assertRaises(ValueError):validate_runtime_inputs([program,root/'missing'],[program])
+
     def test_shared_service_contract(self):
         profile = common.service_profile({'cipher_algorithm': 0, 'slice_sd': '000001', 'provisioned_sqn': 32})
         self.assertEqual(profile['security'], 'NIA2/NEA0')
