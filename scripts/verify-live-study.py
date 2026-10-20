@@ -61,10 +61,14 @@ def stage_interoperability(output):
     return result
 
 
-def stage_profile(output):
-    if not (output/'interoperability/check-receipt.json').exists():raise ValueError('complete interoperability before profile admission')
+def stage_profile(output,case):
+    receipt=output/'interoperability/check-receipt.json'
+    if not receipt.exists() or not read(receipt).get('check_passed'):raise ValueError('complete interoperability before profile admission')
     write(output/'prepared-lab.json',{'prepared_plan':str(output/'interoperability/base-plan.json')})
-    return command(output,'profile-admission','study','check',output/'profile.json','--lab',output/'prepared-lab.json','--output',output/'profile-admission')
+    profile=read(output/'profile.json')
+    selected={**profile,'cases':[row for row in profile['cases'] if row['id']==case],'confirmation':[]}
+    path=output/('profile-'+case+'.json');write(path,selected)
+    return command(output,'profile-admission-'+case,'study','check',path,'--lab',output/'prepared-lab.json','--output',output/'profile-admission'/case)
 
 
 def result_bytes(directory):
@@ -145,17 +149,28 @@ STAGES={'interoperability':stage_interoperability,'profile':stage_profile,'resum
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--profile',type=Path,required=True)
     parser.add_argument('--lab',type=Path,required=True);parser.add_argument('--output',type=Path,required=True)
-    parser.add_argument('--stage',choices=['all',*STAGES],default='all');args=parser.parse_args()
+    parser.add_argument('--stage',choices=['all',*STAGES],default='all')
+    parser.add_argument('--case',help='Check one profile case in its own reserved window');args=parser.parse_args()
     output=args.output.resolve()
     try:
+        cases=[case['id'] for case in read(args.profile)['cases']]
+        if args.case and (args.stage!='profile' or args.case not in cases):raise ValueError('--case must name a declared case with --stage profile')
         initialize(args.profile.resolve(),args.lab.resolve(),output)
         frozen=output/'source/scripts/verify-live-study.py'
         if Path(__file__).resolve()!=frozen.resolve():
-            return subprocess.run([sys.executable,str(frozen),'--profile',str(args.profile.resolve()),'--lab',str(args.lab.resolve()),'--output',str(output),'--stage',args.stage]).returncode
+            return subprocess.run([sys.executable,str(frozen),'--profile',str(args.profile.resolve()),'--lab',str(args.lab.resolve()),'--output',str(output),'--stage',args.stage,*(['--case',args.case] if args.case else [])]).returncode
         progress=read(output/'verification-progress.json') if (output/'verification-progress.json').exists() else {}
         for name,run in STAGES.items():
             if args.stage not in ('all',name) or name in progress:continue
-            result=run(output);progress[name]=result;write(output/'verification-progress.json',progress)
+            if name=='profile':
+                for case in ([args.case] if args.case else cases):
+                    key='profile:'+case
+                    if key not in progress:
+                        progress[key]=run(output,case);write(output/'verification-progress.json',progress)
+                if all('profile:'+case in progress for case in cases):
+                    progress['profile']={'check_passed':True,'cases':cases}
+            else:progress[name]=run(output)
+            write(output/'verification-progress.json',progress)
         receipt={'passed':all(name in progress for name in STAGES),'stages':progress,'scope':'Live tool verification only; no performance comparison claims'}
         write(output/'verification-receipt.json',receipt);print(json.dumps(receipt));return 0
     except (OSError,ValueError,KeyError,subprocess.SubprocessError) as error:

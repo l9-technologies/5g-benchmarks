@@ -110,6 +110,8 @@ This creates a clean public-tool export. It checks every prepared core with real
 
 On a shared Mini, run stages in separate reserved windows with `--stage interoperability`, `profile`, `resume`, `interrupt`, and `replay`. Use the same input files and output directory for every stage. Completed stages remain saved. A changed tool, source export, profile, or lab file requires a new verification output. The `replay` stage only reads saved traffic evidence and can run after CI is restored.
 
+Use `--stage profile --case load-10` to check one declared case per window. Check every declared case. The verifier saves each completed case and marks profile admission complete only when all cases pass. It does not rerun saved checks.
+
 A bounded run returns exit 2 if it records a failure, even when collection is partial. Resume keeps that failure. Exit 0 is not permission to publish performance claims; inspect feature, measurement-boundary, repeated-baseline, confirmation, and independent-review results.
 
 Connection cases use the UERANSIM user plane for their N6 reply checks. Loaded cases use the common Linux GTP endpoint. This choice is explicit in each case and stays the same for every core. Preparation pins the generator capability before collection.

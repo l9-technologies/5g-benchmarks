@@ -29,7 +29,7 @@
     "docs/generator.md": "e7b6eec59ad4fe8155ec3d311909f726cd42437e573892c827e428dca42fe0d5",
     "docs/getting-started.md": "1281806d4f850ac94571801ff7c3dd3aaac502871af6a5ee42b76eb99760c0c4",
     "docs/methodology.md": "ac2a562d1695fa50992cc5054a9a38c802d2fb5bbc12617277f1ba2c8da507f3",
-    "docs/studies.md": "38eafbbc6741086dc7388e4b2787b294cbe5dfff9b0e74707d96df458f3787f5",
+    "docs/studies.md": "bea55be16f02b3c01008d2656bfead3ab0165338924eda5f3885d55225e7b056",
     "docs/third-party.md": "495d05f9f1de6ece265c4ad39ac15170db853697e29a48b98685385d2c6b5dea",
     "experiments.py": "4314544ea1b5303c42fb7b3513d6a6751fa92fd6d9e68a606cabbab5b6ed96ee",
     "native_lab.py": "ecb7412eb4623428fcb1bb4d186c0cd287978653255395e90500d9883959ea20",
@@ -56,7 +56,7 @@
     "scripts/build-iperf.py": "e336361d03ba206fa2d747b829f4733e60191d66ede6e05db41c95bba4516683",
     "scripts/check-agent-instructions.mjs": "382557d992362981592bf46c32501f7ed0b690af9f67bedce3c04dccfbf7c497",
     "scripts/check-publication.py": "3b31c3d9bac8927fcfd48d752f112ead49082d77b64cc8ccf930610351362d59",
-    "scripts/verify-live-study.py": "78e36fd87ec855748c985bbbffd1c94e6d6640f84cf42f0d32c3578e4be583be",
+    "scripts/verify-live-study.py": "77703b576a08363b1f75d781486dbeb383f2f9cb30a299699c49bbf67808a4cd",
     "tests/__init__.py": "8178d04624c6b22a2c9281312058b062cad52072c5547889849a6328d50080bd",
     "tests/test_benchmark.py": "aeb13767a76685a1f83059128c77a44c96a732457bd3f1333630b673fdba4e51",
     "tests/test_full_suite.py": "112772e82da355b1752d54a2cee5a083415f681d620ad38e401ebba285720d66",
@@ -66,7 +66,7 @@
     "tests/test_neutrality.py": "80185958807bed2cb5d88fee795673f659f5b3161a8c62a35805f6535ac14ce4",
     "tests/test_probe_window.py": "d7d1ca76cceeecdebf358b1d6bc86d038b752d128a40a149fa5c7c96cfc61f93",
     "tests/test_session_ambr.py": "6d157f972c062ca4d2a3c47e900cea9c4011bda0bfc807d0a645f0c1cc68dc1d",
-    "tests/test_studies.py": "519c3fcdf210e99b579dca13773a1d0205cefe1187a73d24d51f69ec4d5c5302"
+    "tests/test_studies.py": "cec9f27aa7b99e73f5b3d60c6f0d8f240ef8520497a2019dd8c1cc8b1846c03b"
   },
   "schema_version": 1
 }

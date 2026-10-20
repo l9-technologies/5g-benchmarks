@@ -69,6 +69,23 @@ m={'kind':'fixture','cleanup_ok':True,'quality_errors':[],'features':{'registrat
   with tempfile.TemporaryDirectory() as temp:
    root=pathlib.Path(temp);profile,lab,driver=self.inputs(root);p=json.loads(profile.read_text());p['cases'][0]['typo']=True;profile.write_text(json.dumps(p))
    q=self.command('study','prepare',profile,'--lab',lab,'--output',root/'out');self.assertNotEqual(q.returncode,0);self.assertIn('typo',q.stderr)
+ def test_installation_profile_checks_fit_separate_reserved_windows(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=pathlib.Path(temp);profile,lab,driver=self.inputs(root);out=root/'installation'
+   script=ROOT/'scripts/verify-live-study.py'
+   def check(case):return subprocess.run([sys.executable,str(script),'--profile',str(profile),'--lab',str(lab),'--output',str(out),'--stage','profile','--case',case],capture_output=True,text=True,timeout=120)
+   # This is a fixture boundary for a preceding interoperability stage.
+   from importlib.util import spec_from_file_location,module_from_spec
+   spec=spec_from_file_location('verification_script',script);tool=module_from_spec(spec);spec.loader.exec_module(tool)
+   tool.initialize(profile,lab,out);interop=out/'interoperability';interop.mkdir()
+   (interop/'base-plan.json').write_bytes((root/'base.json').read_bytes());(interop/'check-receipt.json').write_text(json.dumps({'check_passed':True}))
+   first=check('connect-1');self.assertEqual(first.returncode,0,first.stderr)
+   progress=json.loads((out/'verification-progress.json').read_text());self.assertIn('profile:connect-1',progress);self.assertNotIn('profile',progress)
+   saved={str(p):p.read_bytes() for p in out.rglob('trials/*/result.json')};self.assertEqual(len(saved),4)
+   second=check('connect-10');self.assertEqual(second.returncode,0,second.stderr)
+   progress=json.loads((out/'verification-progress.json').read_text());self.assertTrue(progress['profile']['check_passed'])
+   for name,data in saved.items():self.assertEqual(pathlib.Path(name).read_bytes(),data)
+   before=len(list(out.rglob('trials/*/result.json')));again=check('connect-1');self.assertEqual(again.returncode,0,again.stderr);self.assertEqual(len(list(out.rglob('trials/*/result.json'))),before)
  def test_failed_trial_is_retained_on_resume(self):
   with tempfile.TemporaryDirectory() as temp:
    root=pathlib.Path(temp);profile,lab,driver=self.inputs(root);text=driver.read_text().replace("'quality_errors':[]","'quality_errors':['intentional fixture failure'] if c['core']=='b' else []");driver.write_text(text);bp=json.loads(lab.read_text())['prepared_plan'];base=json.loads(pathlib.Path(bp).read_text());base['inputs'][str(driver)]=hashlib.sha256(driver.read_bytes()).hexdigest();pathlib.Path(bp).write_text(json.dumps(base));out=root/'out'
