@@ -82,7 +82,7 @@ def validate_profile(profile):
     return profile
 
 def _base_plan(profile, lab, output):
-    keys(lab, {'prepared_plan','native'}, 'lab')
+    keys(lab, {'prepared_plan','native','host_control'}, 'lab')
     if ('prepared_plan' in lab)==('native' in lab):
         raise ValueError('lab must select exactly one of prepared_plan or native')
     if 'prepared_plan' in lab:
@@ -137,10 +137,17 @@ def compile_plans(profile,base):
 def prepare(profile_path,lab_path,output):
     profile=validate_profile(read(profile_path));lab=read(lab_path)
     # Validate the lab shape before creating an output or touching the host.
-    keys(lab,{'prepared_plan','native'},'lab')
+    keys(lab,{'prepared_plan','native','host_control'},'lab')
+    if 'host_control' in lab:
+        from .host_control import validate
+        config=validate(lab['host_control'],check_files=True)
     output.mkdir(parents=True,exist_ok=False)
     write(output/'profile.json',profile);write(output/'lab.json',lab)
     base=_base_plan(profile,lab,output)
+    if 'host_control' in lab:
+        paths={arg for argv in config['commands'].values() for arg in argv if Path(arg).is_absolute() and Path(arg).is_file()}
+        config={**config,'inputs':{**config['inputs'],**{p:digest(Path(p)) for p in paths}}}
+        base={**base,'host_control':config,'inputs':{**base['inputs'],**config['inputs']}}
     write(output/'base-plan.json',base)
     steps,plans,repetitions=compile_plans(profile,base)
     for name,plan in plans.items():

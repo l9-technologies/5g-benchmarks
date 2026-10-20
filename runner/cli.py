@@ -9,7 +9,7 @@ from .contracts import schedule,validate_plan
 from .evidence import check_inputs,read
 from .execution import merge,run
 from .reporting import make_report
-from . import studies, archives, workflow
+from . import studies, archives, workflow, lab
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -40,15 +40,20 @@ def main():
         if name == "resume": p.add_argument("--max-trials", type=int)
         if name == "archive": p.add_argument("--output", required=True, type=Path)
     study.add_parser("verify-archive").add_argument("archive", type=Path)
+    lab_commands=sub.add_parser('lab').add_subparsers(dest='lab_action',required=True)
+    p=lab_commands.add_parser('doctor');p.add_argument('profile',type=Path)
+    p.add_argument('--lab',required=True,type=Path);p.add_argument('--output',required=True,type=Path)
     args = parser.parse_args()
     try:
+        if args.action=='lab':
+            print(json.dumps(lab.doctor(args.profile.resolve(),args.lab.resolve(),args.output.resolve())));return 0
         if args.action == "study":
             action = args.study_action
             if action=='collect':return workflow.start(args.profile.resolve(),args.lab.resolve(),args.output.resolve(),args.max_trials)
             is_workflow=hasattr(args,'directory') and (args.directory/'workflow.json').exists()
             if is_workflow and action=='resume':return workflow.resume(args.directory.resolve(),args.max_trials)
             if is_workflow and action=='status':
-                print(json.dumps(workflow.status(args.directory.resolve())));return 0
+                print(json.dumps(lab.progress(workflow.status(args.directory.resolve()))));return 0
             if is_workflow and action=='report':
                 workflow.status(args.directory.resolve());args.directory=args.directory/'collection'
             if action == "check":

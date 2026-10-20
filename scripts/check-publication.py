@@ -8,6 +8,9 @@ import sys
 ROOT=Path(__file__).resolve().parents[1]
 ALLOWED = {
     'runner/workflow.py',
+    'runner/host_control.py',
+    'runner/lab.py',
+    'tests/test_host_control.py',
     'requirements-lab.txt',
     '.github/workflows/ci-host-check.yml',
     '.github/workflows/verification.yml',
@@ -72,6 +75,7 @@ ALLOWED = {
     'tests/test_studies.py',
     'profiles/mini-weekly.json',
     'docs/studies.md',
+    'docs/host-control.md',
     'scripts/check-agent-instructions.mjs',
     'scripts/check-publication.py',
     'tests/__init__.py',
