@@ -152,38 +152,65 @@ def prepare(profile_path,lab_path,output):
     write(output/'study.json',manifest)
     return manifest
 
-def check(profile_path,lab_path,output):
-    profile=validate_profile(read(profile_path))
+def check_profile(profile):
     # A health check uses the same adapters and feature requirements. It has
     # fresh disposable state and one short observation per candidate and repeat.
     cases=[{**case,'ue_counts':[max(case['ue_counts'])],'duration_seconds':5,'warmup_seconds':1} for case in profile['cases']]
-    profile={**profile,'name':'check-'+profile['name'][:70],'cases':cases,'confirmation':[]}
+    return {**profile,'name':'check-'+profile['name'][:70],'cases':cases,'confirmation':[]}
+
+def prepare_check(profile_path,lab_path,output):
+    profile=check_profile(validate_profile(read(profile_path)))
     with tempfile.TemporaryDirectory() as temporary:
         path=Path(temporary)/'profile.json';write(path,profile)
         manifest=prepare(path,lab_path,output)
-    rows=[];count=len(read(output/manifest['steps'][0]['plan'])['candidates'])
-    with (output/'.study.lock').open('a') as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        for step in manifest['steps']:
-            target=output/step['run'];target.parent.mkdir(parents=True,exist_ok=True)
-            with contextlib.redirect_stdout(sys.stderr):run(output/step['plan'],target,max_trials=count,report_on_finish=False)
-            batch,_=collected(output,step);rows+=batch
-            if any(r['status']!='passed' or not r['measurement'].get('cleanup_ok') or set(read(output/step['plan'])['metrics'])-r['measurement'].get('metrics',{}).keys() or set(read(output/step['plan'])['metrics']) & r['measurement'].get('metric_notes',{}).keys() for r in batch):break
-    expected=count*len(manifest['steps'])
-    selected={step['case']:set(read(output/step['plan'])['metrics']) for step in manifest['steps']}
-    failed_observations=[]
+    write(output/'check-method.json',{'source_profile_sha256':digest(profile_path)})
+    return manifest
+
+def check_status(output):
+    manifest,_=verified_study(output);rows=[];failed_observations=[];failed=0
+    count=len(read(output/manifest['steps'][0]['plan'])['candidates'])
     for step in manifest['steps']:
         batch,_=collected(output,step)
+        if len(batch)>count:raise ValueError('verification contains unplanned trials')
+        rows+=batch;selected=set(read(output/step['plan'])['metrics'])
         for row in batch:
-            missing=selected[step['case']]-row['measurement'].get('metrics',{}).keys()
-            unverified=selected[step['case']] & row['measurement'].get('metric_notes',{}).keys()
+            missing=selected-row['measurement'].get('metrics',{}).keys()
+            unverified=selected & row['measurement'].get('metric_notes',{}).keys()
             if missing or unverified:failed_observations.append({'case':step['case'],'trial':row['trial']['id'],'missing_metrics':sorted(missing),'unverified_metrics':sorted(unverified)})
-    passed=len(rows)==expected and not failed_observations and all(r['status']=='passed' and r['measurement'].get('cleanup_ok') for r in rows)
-    receipt={'check_passed':passed,'verification_only':True,'checked_candidates':len({r['trial']['candidate'] for r in rows}),
-             'expected_candidates':count,'checked_trials':len(rows),'expected_checks':expected,
-             'source_profile_sha256':digest(profile_path),'study':str(output),'failed_observations':failed_observations}
+            failed+=bool(row['status']!='passed' or not row['measurement'].get('cleanup_ok') or missing or unverified)
+    expected=count*len(manifest['steps'])
+    return {'check_passed':len(rows)==expected and not failed,'verification_only':True,'failed':failed,
+            'checked_candidates':len({r['trial']['candidate'] for r in rows}),'expected_candidates':count,
+            'checked_trials':len(rows),'expected_checks':expected,
+            'source_profile_sha256':read(output/'check-method.json')['source_profile_sha256'],
+            'study':str(output),'failed_observations':failed_observations}
+
+def execute_check(output,max_trials=None):
+    if max_trials is not None and (type(max_trials) is not int or max_trials<1):raise ValueError('max trials must be a positive integer')
+    manifest,_=verified_study(output)
+    count=len(read(output/manifest['steps'][0]['plan'])['candidates'])
+    with (output/'.study.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        recover(output)
+        remaining=max_trials;new_trials=0
+        for step in manifest['steps']:
+            before,_=collected(output,step)
+            if check_status(output)['failed'] or remaining==0:break
+            if len(before)==count:continue
+            target=output/step['run'];target.parent.mkdir(parents=True,exist_ok=True)
+            bound=count-len(before)
+            if remaining is not None:bound=min(bound,remaining)
+            with contextlib.redirect_stdout(sys.stderr):result=run(output/step['plan'],target,resume=target.exists(),max_trials=bound,report_on_finish=False,max_total_trials=count)
+            after,_=collected(output,step)
+            new_trials+=result['new_trials']
+            if remaining is not None:remaining-=result['new_trials']
+    receipt=check_status(output)
     write(output/'check-receipt.json',receipt)
-    return receipt
+    return {**receipt,'new_trials':new_trials}
+
+def check(profile_path,lab_path,output):
+    prepare_check(profile_path,lab_path,output)
+    return execute_check(output)
 
 def verified_study(directory):
     manifest=read(directory/'study.json')
@@ -212,14 +239,25 @@ def collected(directory,step):
     if plan!=read(directory/step['plan']):raise ValueError('collected plan differs from the study')
     return verified_trials(target,plan,read(target/'manifest.json'))
 
+def recover(directory):
+    """Adopt verified results left before a manifest checkpoint; run no trial."""
+    manifest,_=verified_study(directory)
+    for step in manifest['steps']:
+        target=directory/step['run']
+        if not (target/'manifest.json').exists():continue
+        saved=read(target/'manifest.json')
+        if not any(entry['id'] not in saved['result_hashes'] and (target/'trials'/entry['id']/'result.json').exists() for entry in saved['schedule']):continue
+        with contextlib.redirect_stdout(sys.stderr):run(directory/step['plan'],target,resume=True,recover_only=True,report_on_finish=False)
+
 def status(directory):
     manifest,_=verified_study(directory);steps=[]
     for step in manifest['steps']:
         rows,problems=collected(directory,step)
-        steps.append({**step,'collected':len(rows),'failed':sum(r['status']!='passed' for r in rows),'problems':problems})
+        steps.append({**step,'collected':len(rows),'failed':sum(r['status']!='passed' for r in rows),
+                      'cleanup_review_required':any(not r['measurement'].get('cleanup_ok',False) for r in rows),'problems':problems})
     count=sum(s['collected'] for s in steps)
     return {'expected':manifest['expected'],'collected':count,'failed':sum(s['failed'] for s in steps),
-            'complete':count==manifest['expected'],'steps':steps}
+            'complete':count==manifest['expected'],'cleanup_review_required':any(s['cleanup_review_required'] for s in steps),'steps':steps}
 
 def execute(directory,max_trials=None):
     manifest,_=verified_study(directory)
@@ -236,7 +274,7 @@ def execute(directory,max_trials=None):
             target=directory/step['run'];target.parent.mkdir(parents=True,exist_ok=True)
             with contextlib.redirect_stdout(sys.stderr):
                 result=run(directory/step['plan'],target,resume=target.exists(),max_trials=remaining,report_on_finish=False)
-            rows,_=collected(directory,step);count=len(rows)-before
+            rows,_=collected(directory,step);count=result['new_trials']
             write(directory/'progress.json',status(directory))
             if remaining is not None:remaining-=count
             if any(not r['measurement'].get('cleanup_ok',False) for r in rows):
@@ -257,9 +295,12 @@ def report(directory):
 
 def _report(directory):
     manifest,profile=verified_study(directory);outcomes=[];metrics=[];comparisons=[];coverage=[]
+    verification=(directory/'check-method.json').exists()
+    if verification:check_status(directory)
     for step in manifest['steps']:
         rows,problems=collected(directory,step);plan=read(directory/step['plan']);by_id={r['trial']['id']:r for r in rows}
-        if rows:
+        entries=schedule(plan)[:len(plan['candidates'])] if verification else schedule(plan)
+        if rows and not verification:
             # Use the shared comparison code; this writes only the compatible case report.
             child=make_report(directory/step['run'])
             canonical={}
@@ -269,7 +310,7 @@ def _report(directory):
             for c in child['comparisons']:
                 if c['a'] in canonical.values() and c['b'] in canonical.values():
                     comparisons.append({'case':step['case'],'cohort':step['cohort'],**c})
-        for entry in schedule(plan):
+        for entry in entries:
             row=by_id.get(entry['id']);m=row['measurement'] if row else {}
             candidate=next(c for c in plan['candidates'] if c['id']==entry['candidate'])
             common={**{k:plan['protocol'].get(k,'') for k in ('duration_seconds','warmup_seconds','packet_bytes','offered_mbps_per_ue','security','user_plane')},
@@ -284,8 +325,8 @@ def _report(directory):
             for name in sorted(set(m.get('metrics',{}))|set(m.get('metric_errors',{}))|set(plan.get('metrics',METRICS))):
                 metrics.append({**common,'metric':name,'unit':METRICS[name][0],'value':m.get('metrics',{}).get(name,''),
                     'metric_note':m.get('metric_notes',{}).get(name,''),'missing_reason':m.get('metric_errors',{}).get(name,'' if name in m.get('metrics',{}) else 'not collected')})
-        coverage.append({'case':step['case'],'cohort':step['cohort'],'expected':step['expected'],'collected':len(rows),
-                         'failed':sum(r['status']!='passed' for r in rows),'missing':step['expected']-len(rows)})
+        coverage.append({'case':step['case'],'cohort':step['cohort'],'expected':len(entries),'collected':len(rows),
+                         'failed':sum(r['status']!='passed' for r in rows),'missing':len(entries)-len(rows)})
     confirms={(c['case'],c['ue_count'],c['metric'],c['a'],c['b']):c for c in comparisons if c['cohort']=='confirmation'}
     decisions={'a_better','b_better','equivalent','no_clear_difference'}
     for c in comparisons:
@@ -295,7 +336,7 @@ def _report(directory):
     out=directory/'reports'/(datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:8]);out.mkdir(parents=True)
     _csv(out/'trial-outcomes.csv',outcomes,['case','trial','status']);_csv(out/'all-metrics.csv',metrics,['case','trial','metric','value'])
     _csv(out/'coverage.csv',coverage,['case','expected','collected']);_csv(out/'comparisons.csv',comparisons,['case','metric','claim_eligible']);write(out/'comparisons.json',comparisons)
-    summary={'expected':manifest['expected'],'collected':sum(c['collected'] for c in coverage),'failed':sum(c['failed'] for c in coverage),
+    summary={'expected':sum(c['expected'] for c in coverage),'verification_only':verification,'collected':sum(c['collected'] for c in coverage),'failed':sum(c['failed'] for c in coverage),
              'missing':sum(c['missing'] for c in coverage),'confirmed_comparisons':sum(c['claim_eligible'] for c in comparisons),
              'scope':'Declared software cases only. Nominal pairwise intervals; no overall rank or physical-radio certification.'}
     write(out/'report.json',summary)

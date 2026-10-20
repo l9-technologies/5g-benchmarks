@@ -9,7 +9,7 @@ from .contracts import schedule,validate_plan
 from .evidence import check_inputs,read
 from .execution import merge,run
 from .reporting import make_report
-from . import studies, archives
+from . import studies, archives, workflow
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -28,12 +28,12 @@ def main():
     p.add_argument("directories", nargs="+", type=Path)
     p.add_argument("--output", required=True, type=Path)
     study = sub.add_parser("study").add_subparsers(dest="study_action", required=True)
-    for name in ("prepare", "run", "check"):
+    for name in ("prepare", "run", "check", "collect"):
         p = study.add_parser(name)
         p.add_argument("profile", type=Path)
         p.add_argument("--lab", required=True, type=Path)
         p.add_argument("--output", required=True, type=Path)
-        if name == "run": p.add_argument("--max-trials", type=int)
+        if name in ("run","collect"): p.add_argument("--max-trials", type=int)
     for name in ("resume", "status", "report", "archive"):
         p = study.add_parser(name)
         p.add_argument("directory", type=Path)
@@ -44,6 +44,13 @@ def main():
     try:
         if args.action == "study":
             action = args.study_action
+            if action=='collect':return workflow.start(args.profile.resolve(),args.lab.resolve(),args.output.resolve(),args.max_trials)
+            is_workflow=hasattr(args,'directory') and (args.directory/'workflow.json').exists()
+            if is_workflow and action=='resume':return workflow.resume(args.directory.resolve(),args.max_trials)
+            if is_workflow and action=='status':
+                print(json.dumps(workflow.status(args.directory.resolve())));return 0
+            if is_workflow and action=='report':
+                workflow.status(args.directory.resolve());args.directory=args.directory/'collection'
             if action == "check":
                 result = studies.check(args.profile.resolve(), args.lab.resolve(), args.output.resolve())
             elif action in ("prepare", "run"):
@@ -53,9 +60,9 @@ def main():
             elif action == "status": result = studies.status(args.directory.resolve())
             elif action == "report": result = {"report": str(studies.report(args.directory.resolve()))}
             elif action == "archive":
-                with (args.directory/'.study.lock').open('a') as lock:
+                with (args.directory/('.workflow.lock' if is_workflow else '.study.lock')).open('a') as lock:
                     fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-                    studies.status(args.directory.resolve())
+                    (workflow.status if is_workflow else studies.status)(args.directory.resolve())
                     result = archives.create(args.directory.resolve(), args.output.resolve())
             else: result = archives.verify(args.archive.resolve())
             if action in ('run','resume') and result.get('complete') and args.max_trials is None:

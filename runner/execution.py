@@ -57,13 +57,15 @@ def invoke(argv, cwd, env, timeout, log):
             stop_group(proc, grace=30)
 
 
-def run(plan_path, output, shard_index=0, shard_count=1, *, resume=False, max_trials=None, report_on_finish=True):
+def run(plan_path, output, shard_index=0, shard_count=1, *, resume=False, max_trials=None, report_on_finish=True, max_total_trials=None, recover_only=False):
     plan = validate_plan(read(plan_path))
     if not 1 <= shard_count <= plan["repetitions"] or not 0 <= shard_index < shard_count:
         raise ValueError("invalid shard index or count")
     check_inputs(plan)
     if max_trials is not None and (type(max_trials) is not int or max_trials < 1):
         raise ValueError("max trials must be a positive integer")
+    if max_total_trials is not None and (type(max_total_trials) is not int or not 1<=max_total_trials<=len(schedule(plan))):
+        raise ValueError('total trial limit must select a nonempty schedule prefix')
     candidates = {c["id"]: c for c in plan["candidates"]}
     # All plans for this prepared lab use one lock, regardless of output path.
     lock_path = Path("/var/lock/5g-benchmark.lock") if plan["mode"] == "live" else Path(plan["cwd"]) / ".benchmark.lock"
@@ -105,6 +107,8 @@ def run(plan_path, output, shard_index=0, shard_count=1, *, resume=False, max_tr
             write(output / "manifest.json", manifest)
         collected = 0
         for entry in manifest["schedule"]:
+            if recover_only:break
+            if max_total_trials is not None and len(manifest['result_hashes'])>=max_total_trials:break
             directory = output / "trials" / entry["id"]
             if entry["id"] in manifest["result_hashes"]:
                 continue
@@ -159,7 +163,7 @@ def run(plan_path, output, shard_index=0, shard_count=1, *, resume=False, max_tr
             # all planned missing trials, then stop before starting another lab.
             if code == 130 or not result["measurement"].get("cleanup_ok", False):
                 break
-    return make_report(output) if report_on_finish else {"trial_count": len(manifest["result_hashes"])}
+    return make_report(output) if report_on_finish else {"trial_count": len(manifest["result_hashes"]),'new_trials':collected}
 
 
 def host_class(host):

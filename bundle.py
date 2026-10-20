@@ -63,6 +63,7 @@ def export(output):
         'adapters/ueransim.py',
         'runner/__init__.py',
         'runner/cli.py',
+        'runner/workflow.py',
         'runner/contracts.py',
         'runner/evidence.py',
         'runner/execution.py',
