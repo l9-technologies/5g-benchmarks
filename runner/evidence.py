@@ -78,6 +78,7 @@ def verified_trials(directory,plan,manifest):
             if evidence_hashes(trial, [name])[name] != expected_hash:
                 raise ValueError(f"evidence hash changed: {entry['id']}/{name}")
         if result['status'] not in ('passed','failed'):raise ValueError('unknown trial status')
+        if result['status']=='passed' and result.get('driver_return_code',0)!=0:raise ValueError('passed result has a failed driver return code')
         m = result["measurement"]
         if m:
             validate_measurement(m)

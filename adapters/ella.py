@@ -3,11 +3,11 @@ import json
 from pathlib import Path
 import secrets
 from runner.evidence import write
-from .common import KEY, OPC, service_profile, subscriber_sqn
+from .common import KEY, OPC, service_profile, subscriber_sqn,subscriber_population
 
 
 def start(lab, count):
-    count=max(count,2)  # Retain a second identity for the fresh-session recovery checks.
+    count=subscriber_population(lab.config,count)
     profile = service_profile(lab.config)
     def api(path, body=None, method=None):
         args = ['curl', '--fail-with-body', '--silent', '--show-error', '--max-time', '10',
@@ -25,7 +25,7 @@ def start(lab, count):
     lab.start('core-ella', [Path(lab.config['ella_bin']), '--config', path], role='core')
     lab.wait(lambda: '5002' in lab.ns(lab.core_ns, ['ss', '-lntH']))
     token = None
-    token = api('init', {'email': 'benchmark@example.invalid', 'password': secrets.token_urlsafe(24)})['token']
+    token = api('init', {'email': 'benchmark@example.invalid', 'password': secrets.token_urlsafe(21)+'aA1!'})['token']
     api('operator/id', {'mcc': '001', 'mnc': '01'}, 'PUT')
     api('operator/tracking', {'supportedTacs': ['000001']}, 'PUT')
     api('operator/nas-security', {'ciphering': ['NULL'] if profile['cipher_algorithm']==0 else ['AES'], 'integrity': ['AES']}, 'PUT')

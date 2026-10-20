@@ -1,5 +1,6 @@
 """Public test identities and common process helpers."""
 import importlib.util
+import os
 import subprocess
 import sys
 
@@ -15,8 +16,8 @@ def initial_sqn(index):
     return index << 5
 
 
-def command(args, timeout=60, check=True):
-    result = subprocess.run([str(a) for a in args], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
+def command(args, timeout=60, check=True, env=None):
+    result = subprocess.run([str(a) for a in args], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout, env=None if env is None else {**os.environ,**env})
     if check and result.returncode:
         raise RuntimeError(f"{args[0]} exited {result.returncode}: {result.stderr[-1500:]}")
     return result.stdout
@@ -50,3 +51,10 @@ def service_profile(config):
 def subscriber_sqn(config, index):
     value = service_profile(config)['provisioned_sqn']
     return initial_sqn(index) if value is None else value
+
+
+def subscriber_population(config,requested):
+    minimum=config.get('minimum_subscribers',2)
+    if type(minimum) is not int or not 1<=minimum<=253:
+        raise ValueError('minimum subscribers must be an integer from 1 through 253')
+    return max(requested,minimum)

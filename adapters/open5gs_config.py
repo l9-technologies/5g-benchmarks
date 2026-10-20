@@ -17,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Configure Open5GS for the local benchmark profile.")
     parser.add_argument("--config-dir", type=Path, default=Path("/etc/open5gs"))
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
+    parser.add_argument("--slice-sd")
     parser.add_argument("--interface", required=True)
     parser.add_argument("--n3-bind-host")
     parser.add_argument("--n3-advertise-host", required=True)
@@ -47,7 +48,10 @@ def configure(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError("--n3-bind-host must be an IPv4 address or interface name")
 
     profile = tomllib.loads(args.profile.read_text(encoding="utf-8"))
-    radio = profile["radio"]
+    radio = dict(profile["radio"])
+    if getattr(args,'slice_sd',None) is not None:
+        if not re.fullmatch('[0-9a-fA-F]{6}',args.slice_sd):raise ValueError('slice SD must contain six hexadecimal digits')
+        radio['sd']=args.slice_sd.lower()
     user_plane = profile["user_plane"]
     mcc = required_text(radio["mcc"], "radio.mcc")
     mnc = required_text(radio["mnc"], "radio.mnc")

@@ -168,7 +168,7 @@ def measurement_failures(plan,measurement,count):
 
 def comparison_reasons(metric,aa,bb,scope):
     keys=['service_profile']
-    if metric.startswith(('registration_','attach_','stack_')):keys.append('authentication_profile')
+    if metric.startswith(('registration_','session_','attach_','stack_')):keys.append('authentication_profile')
     if metric.startswith(('core_','host_')) or '_host_cpu_' in metric:keys.append('durability_profile')
     if metric.startswith(('core_','host_','ue_','gnb_')) or '_host_cpu_' in metric:keys.append('resource_scope')
     if scope=='radio_pair':keys.append('radio_capability_profile')

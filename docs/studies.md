@@ -55,7 +55,7 @@ Resume verifies saved plans, results, evidence, report tools, and host identity.
 
 ## Scope and quality
 
-The example profile is a small software comparison, not a maximum-capacity test. It uses 1 and 10 devices for fixed load and a 50-device connection batch. Ten repetitions are a minimum. Preparation rounds up to complete candidate-order rotations. Each identity has one repeated baseline. Confirmation cases use new trials with the same declared settings and decision rules.
+The example profile is a small software comparison, not a maximum-capacity test. It uses 1- and 10-device connection batches, plus 10- and 50-Mbit/s aggregate TCP load with 10 devices in both directions. It preselects fresh confirmation sets for all four cases. With five cores and their repeats, that is 800 trials. Ten repetitions are a minimum. Preparation rounds up to complete candidate-order rotations. Each identity has one repeated baseline. Confirmation cases use new trials with the same declared settings and decision rules.
 
 `metrics` selects comparison questions. It does not discard other recorded metrics or their errors. The optional `cores` list selects prepared adapters. The optional `required_features` list must select requirements from the pinned registry before collection. Without that field, the full prepared requirements remain mandatory. Missing required features block comparisons. A short run or fixture cannot support a performance claim.
 
@@ -98,3 +98,15 @@ The Mini host still needs a reservation controller when it shares CPU and memory
 The default profile requires receiver delivery within 5% of the declared fixed load. This check applies to every adapter in the shared executor. Raw values remain in failed outcomes. This is separate from the statistical equivalence margin. The connection case sends readiness probes without a full throughput phase.
 
 A metric with an unverified boundary keeps its observed value and an explicit `metric_note`. That metric cannot pass a comparison or a health check. Other observations remain available. An unverified observation is not a competitive win.
+
+## Verify a new installation
+
+```sh
+sudo python3 scripts/verify-live-study.py --profile profiles/mini-weekly.json --lab /opt/benchmark/lab.json --output /opt/benchmark/verification-001
+```
+
+This creates a clean public-tool export. It checks every prepared core with real TCP and UDP in both directions, checks each declared profile case, completes a short live resume study, tests real interruption and cleanup, replays reports with the export hidden, and verifies archive readback. It preserves the intentional interruption failure separately from clean trials. Its results are verification only. It does not launch the timed comparison campaign.
+
+On a shared Mini, run stages in separate reserved windows with `--stage interoperability`, `profile`, `resume`, `interrupt`, and `replay`. Use the same input files and output directory for every stage. Completed stages remain saved. A changed tool, source export, profile, or lab file requires a new verification output. The `replay` stage only reads saved traffic evidence and can run after CI is restored.
+
+A bounded run returns exit 2 if it records a failure, even when collection is partial. Resume keeps that failure. Exit 0 is not permission to publish performance claims; inspect feature, measurement-boundary, repeated-baseline, confirmation, and independent-review results.

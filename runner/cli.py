@@ -62,7 +62,7 @@ def main():
                 directory=args.output if action=='run' else args.directory
                 result['report']=str(studies.report(directory.resolve()))
             print(json.dumps(result))
-            return 2 if (result.get("complete") and result.get("failed")) or result.get("check_passed") is False else 0
+            return 2 if result.get("failed") or result.get("check_passed") is False else 0
         if args.action == "validate":
             plan = validate_plan(read(args.plan))
             check_inputs(plan)

@@ -148,6 +148,7 @@ def run(plan_path, output, shard_index=0, shard_count=1, *, resume=False, max_tr
             except KeyboardInterrupt:
                 code = 130
                 result["error"] = "run interrupted"
+            result["driver_return_code"]=code
             write(directory / "result.json", result)
             manifest["result_hashes"][entry["id"]] = digest(directory / "result.json")
             write(output / "manifest.json", manifest)

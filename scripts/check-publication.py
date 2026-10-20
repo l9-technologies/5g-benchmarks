@@ -25,6 +25,7 @@ ALLOWED = {
     'adapters/probe_window.py',
     'patches/iperf-3.16-phase-clock.patch',
     'scripts/build-iperf.py',
+    'scripts/verify-live-study.py',
     'tests/test_probe_window.py',
     'patches/qcore-compatibility.diff',
     'patches/qcore-response-correlation.patch',

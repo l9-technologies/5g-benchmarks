@@ -55,7 +55,7 @@ m={'kind':'fixture','cleanup_ok':True,'quality_errors':[],'features':{'registrat
  def test_declared_delivery_limit_is_checked_for_every_adapter(self):
   with tempfile.TemporaryDirectory() as temp:
    root=pathlib.Path(temp);profile,lab,driver=self.inputs(root);p=json.loads(profile.read_text());p['defaults']={'traffic_modes':['tcp_dl'],'load_tolerance_percent':5};profile.write_text(json.dumps(p));out=root/'out'
-   q=self.command('study','run',profile,'--lab',lab,'--output',out,'--max-trials','4');self.assertEqual(q.returncode,0,q.stderr)
+   q=self.command('study','run',profile,'--lab',lab,'--output',out,'--max-trials','4');self.assertEqual(q.returncode,2,q.stderr)
    rows=[json.loads(p.read_text()) for p in out.rglob('trials/*/result.json')];self.assertEqual(len(rows),4)
    self.assertTrue(all(r['status']=='failed' and 'delivered load' in r['error'] for r in rows))
  def test_unverified_metric_keeps_its_value_and_blocks_its_comparison(self):
@@ -72,7 +72,7 @@ m={'kind':'fixture','cleanup_ok':True,'quality_errors':[],'features':{'registrat
  def test_failed_trial_is_retained_on_resume(self):
   with tempfile.TemporaryDirectory() as temp:
    root=pathlib.Path(temp);profile,lab,driver=self.inputs(root);text=driver.read_text().replace("'quality_errors':[]","'quality_errors':['intentional fixture failure'] if c['core']=='b' else []");driver.write_text(text);bp=json.loads(lab.read_text())['prepared_plan'];base=json.loads(pathlib.Path(bp).read_text());base['inputs'][str(driver)]=hashlib.sha256(driver.read_bytes()).hexdigest();pathlib.Path(bp).write_text(json.dumps(base));out=root/'out'
-   q=self.command('study','run',profile,'--lab',lab,'--output',out,'--max-trials','4');self.assertEqual(q.returncode,0,q.stderr)
+   q=self.command('study','run',profile,'--lab',lab,'--output',out,'--max-trials','4');self.assertEqual(q.returncode,2,q.stderr)
    failed=[p for p in out.rglob('trials/*/result.json') if json.loads(p.read_text())['status']=='failed'];self.assertEqual(len(failed),2);hashes={str(p):p.read_bytes() for p in failed}
    self.command('study','resume',out)
    for p,data in hashes.items():self.assertEqual(pathlib.Path(p).read_bytes(),data)

@@ -5,62 +5,115 @@
   "seed": 1729,
   "equivalence_percent": 5,
   "timeout_seconds": 600,
+  "required_features": [
+    "registration",
+    "pdu_session"
+  ],
   "defaults": {
     "duration_seconds": 30,
     "warmup_seconds": 5,
     "packet_bytes": 1200,
     "offered_mbps_per_ue": 1,
+    "traffic_modes": [
+      "tcp_ul",
+      "tcp_dl"
+    ],
+    "probe_interval_seconds": 0.2,
+    "resource_sample_seconds": 0.1,
     "load_tolerance_percent": 5
   },
   "cases": [
     {
-      "id": "fixed-load",
+      "id": "connect-1",
       "ue_counts": [
-        1,
-        10
+        1
       ],
+      "traffic_modes": [],
       "metrics": [
         "attach_success_percent",
+        "attach_ready_ms",
         "stack_traffic_ready_ms",
+        "registration_success_percent",
+        "session_success_percent",
+        "registration_per_second",
+        "session_per_second",
+        "registration_p50_ms",
+        "registration_p95_ms",
+        "registration_p99_ms",
+        "session_p50_ms",
+        "session_p95_ms",
+        "session_p99_ms"
+      ]
+    },
+    {
+      "id": "connect-10",
+      "ue_counts": [
+        10
+      ],
+      "traffic_modes": [],
+      "metrics": [
+        "attach_success_percent",
+        "attach_ready_ms",
+        "stack_traffic_ready_ms",
+        "registration_success_percent",
+        "session_success_percent",
+        "registration_per_second",
+        "session_per_second",
+        "registration_p50_ms",
+        "registration_p95_ms",
+        "registration_p99_ms",
+        "session_p50_ms",
+        "session_p95_ms",
+        "session_p99_ms"
+      ]
+    },
+    {
+      "id": "load-10",
+      "ue_counts": [
+        10
+      ],
+      "offered_mbps_per_ue": 1.0,
+      "metrics": [
         "tcp_ul_mbps",
-        "tcp_dl_mbps",
-        "udp_ul_mbps",
-        "udp_dl_mbps",
         "tcp_ul_rtt_p50_ms",
         "tcp_ul_rtt_p95_ms",
         "tcp_ul_rtt_p99_ms",
+        "tcp_ul_ping_loss_percent",
+        "tcp_dl_mbps",
         "tcp_dl_rtt_p50_ms",
         "tcp_dl_rtt_p95_ms",
         "tcp_dl_rtt_p99_ms",
-        "tcp_ul_ping_loss_percent",
         "tcp_dl_ping_loss_percent",
-        "udp_ul_loss_percent",
-        "udp_dl_loss_percent",
+        "core_idle_pss_bytes",
         "core_pss_peak_bytes"
       ]
     },
     {
-      "id": "connection-batch",
+      "id": "load-50",
       "ue_counts": [
-        50
+        10
       ],
+      "offered_mbps_per_ue": 5.0,
       "metrics": [
-        "attach_success_percent",
-        "registration_per_second",
-        "session_per_second",
-        "registration_p50_ms",
-        "session_p50_ms",
-        "stack_traffic_ready_ms"
-      ],
-      "traffic_modes": []
+        "tcp_ul_mbps",
+        "tcp_ul_rtt_p50_ms",
+        "tcp_ul_rtt_p95_ms",
+        "tcp_ul_rtt_p99_ms",
+        "tcp_ul_ping_loss_percent",
+        "tcp_dl_mbps",
+        "tcp_dl_rtt_p50_ms",
+        "tcp_dl_rtt_p95_ms",
+        "tcp_dl_rtt_p99_ms",
+        "tcp_dl_ping_loss_percent",
+        "core_idle_pss_bytes",
+        "core_pss_peak_bytes"
+      ]
     }
   ],
   "confirmation": [
-    "fixed-load",
-    "connection-batch"
-  ],
-  "required_features": [
-    "registration",
-    "pdu_session"
+    "connect-1",
+    "connect-10",
+    "load-10",
+    "load-50"
   ]
 }

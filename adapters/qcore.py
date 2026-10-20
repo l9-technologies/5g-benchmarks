@@ -4,11 +4,11 @@ The pinned binary must support the documented ARM, AMBR and TUN changes.
 Preparation does not patch or build the core.
 """
 from pathlib import Path
-from .common import KEY, OPC, service_profile
+from .common import KEY, OPC, service_profile, subscriber_population
 
 
 def start(lab, count):
-    count=max(count,2)  # Retain a second identity for the fresh-session recovery checks.
+    count=subscriber_population(lab.config,count)
     profile = service_profile(lab.config)
     if profile['cipher_algorithm'] != 0:
         raise ValueError('this QCore adapter supports integrity-only NAS; encrypted checks remain unsupported')

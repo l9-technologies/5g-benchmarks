@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import bisect
 import errno
 import json
@@ -20,7 +21,7 @@ from datetime import datetime
 from benchmark import balanced_repetitions, FEATURES, METRICS, digest, number, object_hash, percentile, read, stop_group, validate_plan, write
 
 from adapters import open5gs,free5gc,ueransim,ella,qcore,kernel_gtp,session_ambr,steering,probe_window
-from adapters.common import NFS,OPEN_NFS,FREE_NFS,KEY,OPC,UE_ROUTE_TABLE_BASE,initial_sqn,command,module,service_profile,subscriber_sqn
+from adapters.common import NFS,OPEN_NFS,FREE_NFS,KEY,OPC,UE_ROUTE_TABLE_BASE,initial_sqn,command,module,service_profile,subscriber_sqn,subscriber_population
 
 ROOT = Path(__file__).resolve().parent
 
@@ -184,6 +185,7 @@ def prepare(args):
     cores=args.cores or available
     if len(set(cores))!=len(cores) or set(cores)-set(available):raise ValueError('unknown or unavailable core adapter')
     service=service_profile(vars(args))
+    subscriber_population(vars(args),1)
     iperf=Path(args.iperf_bin or shutil.which('iperf3') or '').resolve()
     probe_contract=None
     if args.iperf_build_receipt:
@@ -245,11 +247,24 @@ def prepare(args):
     paths += [config_tool, profile, ROOT / "benchmark.py", Path(__file__).resolve()]
     paths += sorted((ROOT/"runner").glob("*.py"))+sorted((ROOT/"adapters").glob("*.py"))+sorted((ROOT/"adapters").glob("*.c"))
     paths+=list(radio_configs.glob('*.yaml'))
-    # Pin runtime libraries as well as programs: an OS update changes the trial.
+    program_env={}
+    programs={'open5gs':[Path(args.open5gs_bin)/f'open5gs-{nf}d' for nf in OPEN_NFS],
+              'free5gc':[args.free5gc/'bin'/nf for nf in FREE_NFS] if args.free5gc else [],
+              'ella':[args.ella_bin] if args.ella_bin else [],'qcore':[args.qcore_bin] if args.qcore_bin else []}
+    if extension:
+        for core in added['cores']:
+            binaries,_=extension.binaries(added['config'],core,'ueransim');programs[core]=binaries
+    for core,files in programs.items():
+        for path in files:program_env[path.resolve()]=runtime_environment.get('cores',{}).get(core,{})
+    # Pin runtime libraries with the same loader environment as the core.
     libraries = set()
     for path in paths:
-        if os.access(path, os.X_OK) and path.read_bytes()[:4] == b"\x7fELF":
-            libraries.update(Path(p).resolve() for p in re.findall(r"(?:=>\s+|^\s*)(/\S+)", command(["ldd", path], check=False), re.M))
+        if not path.is_file():raise ValueError('missing runtime input: '+str(path))
+        with path.open('rb') as handle:is_elf=handle.read(4)==b'\x7fELF'
+        if os.access(path,os.X_OK) and is_elf:
+            linked=command(['ldd',path],check=False,env=program_env.get(path.resolve(),{}))
+            if 'not found' in linked:raise ValueError('missing runtime library for '+str(path)+': '+linked)
+            libraries.update(Path(p).resolve() for p in re.findall(r'(?:=>\s+|^\s*)(/\S+)',linked,re.M))
     paths += sorted(libraries)
     requirements_path=Path(args.requirements).resolve()
     requirements=read(requirements_path)
@@ -280,7 +295,7 @@ def prepare(args):
     if args.user_plane=='linux-gtp' and all(allocations.values()):
         lab['flow_hash_objects']=steering.prepare(args.output,[len(args.core_cpus),len(args.gnb_cpus),len(args.generator_cpus)])
         inputs.update({str(p.resolve()):digest(p) for p in args.output.iterdir() if p.is_file()})
-    lab.update({'iperf3':str(iperf),'probe_window_contract':probe_contract,'runtime_environment':runtime_environment,'user_plane':args.user_plane,'kernel_gtp_module':str(Path(args.kernel_gtp_module).resolve()) if args.kernel_gtp_module else None,**allocations,'layout':args.layout,'cipher_algorithm':args.cipher_algorithm,'slice_sd':args.slice_sd,
+    lab.update({'iperf3':str(iperf),'probe_window_contract':probe_contract,'monitor_registration':True,'minimum_subscribers':args.minimum_subscribers,'runtime_environment':runtime_environment,'user_plane':args.user_plane,'kernel_gtp_module':str(Path(args.kernel_gtp_module).resolve()) if args.kernel_gtp_module else None,**allocations,'layout':args.layout,'cipher_algorithm':args.cipher_algorithm,'slice_sd':args.slice_sd,
                 'provisioned_sqn':args.provisioned_sqn,'n2_ip':'10.3.0.2' if args.layout=='split' else '127.0.0.1',
                 'n3_ip':'10.3.0.2' if args.layout=='split' else '127.0.0.1',
                 'gnb_ip':'10.3.0.3' if args.layout=='split' else '127.0.0.2',
@@ -304,7 +319,7 @@ def prepare(args):
                 "offered_mbps_per_ue": args.mbps, "security": service["security"], "plmn": "00101",
                 "slice": service["slice"], "dnn": "internet", "session_ambr_mbps": 1000,
                 "ambr_scope": "subscription configuration and N2 signalling target; NAS rate conformance and enforcement are untested",
-                "transport": "IPv4", "probe_window_contract":probe_contract,"user_plane":args.user_plane,"path": "UE TUN -> gNB -> N3 -> UPF TUN -> N6 veth -> receiver",
+                "transport": "IPv4", "minimum_subscribers":args.minimum_subscribers,"probe_window_contract":probe_contract,"user_plane":args.user_plane,"path": "UE TUN -> gNB -> N3 -> UPF TUN -> N6 veth -> receiver",
                 "n6_nat": True,
                 "network_functions": {"open5gs": OPEN_NFS, "free5gc": FREE_NFS},
                 "discovery": "direct NRF; Open5GS requires BSF for its PCF session path",
@@ -337,11 +352,41 @@ class Lab:
         self.samples = []
         self.commands = {}
         self.critical_pids=set()
+        self._adopting=0
+        self._pending_signal=None
         self.metric_notes={}
         self.monitor_ready = threading.Event()
         self.monitor_stop = threading.Event()
         self.monitor_thread = None
         self.owns_gtp_module=False
+        self.gtp_load_attempted=False
+
+    def record_custody(self):
+        write(self.output/'resource-custody.json',{'owner_pid':os.getpid(),'prefix':self.prefix,
+              'namespaces':self.namespaces,'container':self.mongo,'volumes':self.mongo_volumes,
+              'process_groups':[process.pid for process,_,_ in self.processes],
+              'gtp_load_attempted':self.gtp_load_attempted,'owns_gtp_module':self.owns_gtp_module,'owner_uid':os.getuid(),
+              'owner_start_ticks':Path('/proc/self/stat').read_text().rsplit(') ',1)[1].split()[19] if Path('/proc/self/stat').exists() else None})
+
+    @contextlib.contextmanager
+    def adopting_resource(self):
+        self._adopting+=1
+        try:yield
+        finally:
+            self.record_custody()
+            self._adopting-=1
+            if not self._adopting and self._pending_signal is not None:
+                signum=self._pending_signal;self._pending_signal=None
+                raise InterruptedError(f'signal {signum}')
+
+    def interrupt(self,signum):
+        if self._adopting:self._pending_signal=signum
+        else:raise InterruptedError(f'signal {signum}')
+
+    def add_namespace(self,name):
+        with self.adopting_resource():
+            self.namespaces.append(name);self.record_custody()
+            command(['ip','netns','add',name])
 
     def ns(self, namespace, args, **kwargs):
         return command(["ip", "netns", "exec", namespace, *args], **kwargs)
@@ -358,12 +403,13 @@ class Lab:
             args = [a for a in args if a != "-l"]
         argv = ["ip", "netns", "exec", namespace or self.core_ns, *map(str, args)]
         base_env = {k:v for k,v in os.environ.items() if k in ('PATH','HOME','LANG','LC_ALL','TMPDIR')}
-        with (self.output / f"{name}.log").open("wb") as handle:
-            p = subprocess.Popen(argv, env={**base_env, "RUST_LOG": "info", "NO_COLOR": "1", **(env or {})},
-                                 stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT, start_new_session=True)
-        self.processes.append((p, role, name))
-        if required is True or (required is None and role in ('core','ue','gnb')):self.critical_pids.add(p.pid)
-        self.commands[name] = (list(args), namespace, env, role)
+        with self.adopting_resource():
+            with (self.output / f"{name}.log").open("wb") as handle:
+                p = subprocess.Popen(argv, env={**base_env, "RUST_LOG": "info", "NO_COLOR": "1", **(env or {})},
+                                     stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT, start_new_session=True)
+            self.processes.append((p, role, name))
+            if required is True or (required is None and role in ('core','ue','gnb')):self.critical_pids.add(p.pid)
+            self.commands[name] = (list(args), namespace, env, role)
         return p
 
     def restart(self, name):
@@ -382,13 +428,14 @@ class Lab:
             if loaded.exists():
                 if loaded.read_text().strip()!=wanted:raise ValueError('a different GTP module is already loaded')
             else:
-                command(['insmod',module_path]);self.owns_gtp_module=True
+                self.gtp_load_attempted=True
+                with self.adopting_resource():
+                    command(['insmod',module_path]);self.owns_gtp_module=True
                 if loaded.read_text().strip()!=wanted:raise ValueError('loaded generator module hash differs')
         if any(line.startswith("b5g-") for line in command(["ip", "netns", "list"]).splitlines()):
             raise RuntimeError("a benchmark namespace remains; inspect its cleanup receipt first")
         for ns in (self.core_ns, self.dn_ns, self.ue_ns):
-            command(["ip", "netns", "add", ns])
-            self.namespaces.append(ns)
+            self.add_namespace(ns)
             self.ns(ns, ["ip", "link", "set", "lo", "up"])
         self.ns(self.core_ns, ["ip", "link", "add", "dn0", "type", "veth", "peer", "name", "dn1"])
         self.ns(self.core_ns, ["ip", "link", "set", "dn1", "netns", self.dn_ns])
@@ -401,7 +448,7 @@ class Lab:
 
         if self.config.get('layout')=='split':
             self.radio_ns=self.prefix+'-ran'
-            command(['ip','netns','add',self.radio_ns]);self.namespaces.append(self.radio_ns)
+            self.add_namespace(self.radio_ns)
             self.ns(self.radio_ns,['ip','link','set','lo','up'])
             self.ns(self.core_ns,['ip','link','add','n3','type','veth','peer','name','ran0'])
             self.ns(self.core_ns,['ip','link','set','ran0','netns',self.radio_ns])
@@ -431,6 +478,8 @@ class Lab:
         return open5gs.start(self,count)
 
     def start_core(self,core,count):
+        requested=count;count=subscriber_population(self.config,count)
+        write(self.output/'subscriber-population.json',{'attached_ue_target':requested,'provisioned_subscribers':count})
         if core=='open5gs':return self.start_open5gs(count)
         if core=='free5gc':return self.start_free5gc(count)
         if core=='ella':return ella.start(self,count)
@@ -440,10 +489,12 @@ class Lab:
 
     def start_database(self):
         self.mongo = f"{self.prefix}-mongo"
+        self.record_custody()
         command(["podman", "run", "-d", "--name", self.mongo, "--network", f"ns:/run/netns/{self.core_ns}",
                  *(["--cpuset-cpus",",".join(map(str,self.config["core_cpus"]))] if self.config.get("core_cpus") else []), self.config["mongo_image"], "--bind_ip", "127.0.0.1"], timeout=90)
         container = json.loads(command(["podman", "inspect", self.mongo]))[0]
         self.mongo_volumes = [m["Name"] for m in container["Mounts"] if m["Type"] == "volume"]
+        self.record_custody()
         write(self.output / "database-volumes.json", {"container": self.mongo, "volumes": self.mongo_volumes})
         self.wait(lambda: "27017" in self.ns(self.core_ns, ["ss", "-lntH"]))
 
@@ -771,6 +822,7 @@ class Lab:
                 errors.append(str(error))
         for ns in reversed(self.namespaces):
             try:
+                if ns not in {line.split()[0] for line in command(["ip","netns","list"]).splitlines()}:continue
                 remaining = command(["ip", "netns", "pids", ns]).split()
                 for pid in remaining:
                     os.kill(int(pid), signal.SIGKILL)
@@ -783,6 +835,8 @@ class Lab:
             errors.append("database container remains")
         if self.mongo_volumes and set(self.mongo_volumes) & set(command(["podman", "volume", "ls", "--format", "{{.Name}}" ]).split()):
             errors.append("database volume remains")
+        if self.gtp_load_attempted and not self.owns_gtp_module and Path('/sys/module/gtp').exists():
+            errors.append('generator module load was interrupted; ownership review is required')
         if self.owns_gtp_module:
             try:command(['rmmod','gtp']);self.owns_gtp_module=False
             except Exception as error:errors.append('generator module cleanup: '+str(error))
@@ -800,12 +854,13 @@ def trial(config_path):
     count = int(os.environ["BENCH_UE_COUNT"])
     config=read(config_path)
     config["candidate"]=candidate["core"]
+    config["resource_sample_seconds"]=plan["protocol"].get("resource_sample_seconds",.1)
     if config.get("observer_cpus"):os.sched_setaffinity(0,config["observer_cpus"])
     lab = Lab(config, output)
     result = {"kind": "live", "cleanup_ok": False, "quality_errors": [], "metrics": {},
-              "features": {f: "untested" for f in FEATURES}, "evidence": []}
+              "features": {f: "untested" for f in FEATURES}, "evidence": [],"provisioned_subscribers":subscriber_population(config,count)}
     def interrupted(signum, frame):
-        raise InterruptedError(f"signal {signum}")
+        lab.interrupt(signum)
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     try:
@@ -820,13 +875,16 @@ def trial(config_path):
         result["metrics"].update(attach_ready_ms=attach, attach_success_percent=100)
         selections=re.findall(r'Selected integrity\[(\d+)\] ciphering\[(\d+)\]',(output/'ue.log').read_text())
         expected=service_profile(lab.config)
-        if len(selections)!=count or any(list(row)!=['2',str(expected['cipher_algorithm'])] for row in selections):
+        if candidate['radio']=='ueransim' and (len(selections)!=count or any(list(row)!=['2',str(expected['cipher_algorithm'])] for row in selections)):
             raise ValueError('selected NAS algorithms differ from the declared profile')
         ue_log=(output/'ue.log').read_text()
-        resync=bool(re.search(r'(?i)AUTS|synchroni[sz]ation failure|SQN.*(failure|out of)',ue_log))
+        auth_proof=ueransim.profile_proof(ue_log,count,lab.config) if candidate['radio']=='ueransim' else {'passed':False,'security_passed':False}
+        if candidate['radio']!='ueransim' and lab.extension and hasattr(lab.extension,'profile_proof'):
+            auth_proof=lab.extension.profile_proof(lab,candidate['core'],candidate['radio'],count)
+        write(output/'nas-profile-proof.json',auth_proof)
         profile={k:plan['protocol'][k] for k in ('plmn','slice','dnn','security','session_ambr_mbps','transport','sbi_authorization')}
-        result['comparison_state']={'service_profile':object_hash(profile),
-            'authentication_profile':None if resync else object_hash({'initial_sqn':[subscriber_sqn(lab.config,i) for i in range(1,count+1)],'ue_state':'fresh','resynchronization':False}),
+        result['comparison_state']={'service_profile':object_hash(profile) if auth_proof['security_passed'] else None,
+            'authentication_profile':object_hash({'initial_sqn':auth_proof['expected_challenges'],'ue_state':'fresh','resynchronization':False}) if auth_proof['passed'] else None,
             'durability_profile':None,'radio_capability_profile':None,'resource_scope':'whole-host'}
         write(output/'comparison-state.json',result['comparison_state'])
         if candidate["radio"] == "ueransim":
@@ -842,7 +900,12 @@ def trial(config_path):
         result["metrics"].update(metrics)
         result.setdefault("metric_errors", {}).update(metric_errors)
         result["quality_errors"].extend(errors)
-        result["metric_notes"]=lab.metric_notes
+        result["metric_notes"]=dict(lab.metric_notes)
+        if not auth_proof['passed']:
+            for name in result['metrics']:
+                if name.startswith(('attach_','stack_','registration_','session_')):result['metric_notes'][name]='initial authentication state is unverified or differs'
+        if not auth_proof['security_passed']:
+            for name in result['metrics']:result['metric_notes'][name]='selected per-UE NAS security is unverified or differs'
         for f in ("external_n6", "tcp", "udp"):
             result["features"][f] = "passed"
         for transport in ("tcp", "udp"):
@@ -880,6 +943,9 @@ def trial(config_path):
     except Exception as error:
         result["quality_errors"].append(str(error))
     finally:
+        for process,role,name in lab.processes:
+            if process.pid in lab.critical_pids and process.poll() is not None:
+                result['quality_errors'].append('required process exited before cleanup: '+name)
         # A second termination request must not interrupt cleanup.
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -918,6 +984,7 @@ def main():
     p.add_argument("--cipher-algorithm", type=int, choices=(0,2), default=2)
     p.add_argument("--slice-sd", default='010203')
     p.add_argument("--provisioned-sqn", type=int)
+    p.add_argument("--minimum-subscribers",type=int,default=2)
     for role in ('core','gnb','generator','observer'):
         p.add_argument('--'+role+'-cpus',type=int,nargs='+')
     p.add_argument("--free5gc", type=Path)

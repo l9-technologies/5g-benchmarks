@@ -75,10 +75,10 @@ def recovery(lab, interfaces, nf, seconds):
 
 
 def route_fresh_tun(lab, target_name='uesimtun0', table=UE_ROUTE_TABLE_BASE+1):
-    lab.wait(lambda: 'uesimtun0' in lab.ns(lab.core_ns, ['ip','-o','-4','addr']))
-    address = next(a['local'] for r in json.loads(lab.ns(lab.core_ns,['ip','-j','-4','addr'])) if r['ifname']=='uesimtun0' for a in r['addr_info'] if a['family']=='inet')
-    if target_name!='uesimtun0':lab.ns(lab.core_ns,['ip','link','set','uesimtun0','name',target_name])
-    lab.ns(lab.core_ns,['ip','link','set',target_name,'netns',lab.ue_ns])
+    lab.wait(lambda: 'uesimtun0' in lab.ns(lab.radio_ns, ['ip','-o','-4','addr']))
+    address = next(a['local'] for r in json.loads(lab.ns(lab.radio_ns,['ip','-j','-4','addr'])) if r['ifname']=='uesimtun0' for a in r['addr_info'] if a['family']=='inet')
+    if target_name!='uesimtun0':lab.ns(lab.radio_ns,['ip','link','set','uesimtun0','name',target_name])
+    lab.ns(lab.radio_ns,['ip','link','set',target_name,'netns',lab.ue_ns])
     lab.ns(lab.ue_ns,['ip','addr','replace',address+'/32','dev',target_name])
     lab.ns(lab.ue_ns,['ip','link','set',target_name,'up'])
     lab.ns(lab.ue_ns,['ip','rule','add','from',address,'table',str(table)])
@@ -106,10 +106,10 @@ def fresh_recovery(lab, interfaces, nf, seconds):
         before="supi: 'imsi-001010000000001'"
         if before not in text:raise ValueError('fresh UE fixture identity changed')
         path=lab.output/'ue-new.yaml';path.write_text(text.replace(before,"supi: 'imsi-001010000000002'"))
-        lab.start('ue-new',[Path(lab.config['ueransim'])/'build/nr-ue','-c',path,'-r','-l'],role='ue')
+        lab.start('ue-new',[Path(lab.config['ueransim'])/'build/nr-ue','-c',path,'-r','-l'],role='ue',namespace=lab.radio_ns)
         remaining=seconds-(time.monotonic()-started)
         if remaining<=0:raise TimeoutError('fresh-session deadline expired')
-        lab.wait(lambda:'uesimtun0' in lab.ns(lab.core_ns,['ip','-o','-4','addr']),seconds=remaining)
+        lab.wait(lambda:'uesimtun0' in lab.ns(lab.radio_ns,['ip','-o','-4','addr']),seconds=remaining)
         address=route_fresh_tun(lab,'freshue0',UE_ROUTE_TABLE_BASE+2);event['fresh_ip']=address;event['existing_ip']=old_ip
         if address==old_ip:raise ValueError('fresh UE address duplicates the existing UE address')
         text=(lab.output/'ue-new.log').read_text()
@@ -118,9 +118,9 @@ def fresh_recovery(lab, interfaces, nf, seconds):
         event['fresh_ping']=ping(lab,address,'fresh-external')
         event['fresh_ping_complete_seconds']=time.monotonic()-started
         for n,reverse in enumerate((False,True)):
-            lab.start(f'fresh-server-{n}',['iperf3','-s','-B','192.0.2.1','-p',str(6201+n)],namespace=lab.dn_ns)
+            lab.start(f'fresh-server-{n}',[lab.config.get('iperf3','iperf3'),'-s','-B','192.0.2.1','-p',str(6201+n)],namespace=lab.dn_ns)
             lab.wait(lambda:str(6201+n) in lab.ns(lab.dn_ns,['ss','-lntH']))
-            args=['iperf3','-c','192.0.2.1','-B',address,'-p',str(6201+n),'-u','-b','1M','-l','1200','-t','3','-J','--get-server-output']
+            args=[lab.config.get('iperf3','iperf3'),'-c','192.0.2.1','-B',address,'-p',str(6201+n),'-u','-b','1M','-l','1200','-t','3','-J','--get-server-output']
             if reverse:args.append('-R')
             data=json.loads(lab.ns(lab.ue_ns,args));write(lab.output/f'fresh-traffic-{n}.json',data)
             received=data['end']['sum_received']
@@ -142,7 +142,7 @@ def churn(lab, interfaces, cycles):
     ip = interfaces[0][1]
     rows = []
     def cli(label, text):
-        reply = lab.ns(lab.core_ns,[str(binary),'imsi-001010000000001','--exec',text])
+        reply = lab.ns(lab.radio_ns,[str(binary),'imsi-001010000000001','--exec',text])
         (lab.output/f'{label}.txt').write_text(reply)
     for i in range(cycles):
         ping(lab,ip,f'cycle-{i}-before',3)
@@ -155,7 +155,7 @@ def churn(lab, interfaces, cycles):
         release_ms=(time.monotonic()-start)*1000
         lab.ns(lab.ue_ns,['ip','rule','del','from',ip,'table',str(UE_ROUTE_TABLE_BASE+1)])
         start=time.monotonic()
-        cli(f'cycle-{i}-establish','ps-establish IPv4 --sst 1 --sd 66051 --dnn internet')
+        cli(f'cycle-{i}-establish','ps-establish IPv4 --sst 1 --sd '+str(int(lab.config.get('slice_sd','010203'),16))+' --dnn internet')
         ip=route_fresh_tun(lab)
         ping(lab,ip,f'cycle-{i}-after',3)
         rows.append({'cycle':i,'released_session_id':session_id,'release_ready_ms':release_ms,'session_traffic_ready_ms':(time.monotonic()-start)*1000,'ip':ip})
@@ -173,9 +173,9 @@ def soak(lab, interfaces, seconds, mbps):
     started=time.monotonic()
     clients=[];probes=[]
     for n,(_,ip) in enumerate(interfaces):
-        lab.start(f'server-{n}',['iperf3','-s','-B','192.0.2.1','-p',str(5201+n)],namespace=lab.dn_ns)
+        lab.start(f'server-{n}',[lab.config.get('iperf3','iperf3'),'-s','-B','192.0.2.1','-p',str(5201+n)],namespace=lab.dn_ns)
         lab.wait(lambda:str(5201+n) in lab.ns(lab.dn_ns,['ss','-lntH']))
-        clients.append(lab.start(f'soak-{n}',['iperf3','-c','192.0.2.1','-B',ip,'-p',str(5201+n),'-u','-b',f'{mbps}M','-l','1200','-t',str(seconds),'-i','60','-J','--get-server-output'],namespace=lab.ue_ns))
+        clients.append(lab.start(f'soak-{n}',[lab.config.get('iperf3','iperf3'),'-c','192.0.2.1','-B',ip,'-p',str(5201+n),'-u','-b',f'{mbps}M','-l','1200','-t',str(seconds),'-i','60','-J','--get-server-output'],namespace=lab.ue_ns))
         probes.append(lab.start(f'soak-ping-{n}',['ping','-D','-n','-I',ip,'-i','1','-w',str(seconds),'-W','2','192.0.2.1'],namespace=lab.ue_ns))
     failures=[]
     for p in clients:
@@ -204,17 +204,7 @@ def soak(lab, interfaces, seconds, mbps):
 
 
 def rejected(lab, core, variant):
-    source=Path(lab.config['radio_configs']);target=lab.output/'variant';target.mkdir()
-    shutil.copyfile(source/'gnb.yaml',target/'gnb.yaml')
-    text=(source/'ue.yaml').read_text()
-    changes={'bad-key':("key: '00112233445566778899aabbccddeeff'", "key: '10112233445566778899aabbccddeeff'"),
-             'unknown-subscriber':("supi: 'imsi-001010000000001'", "supi: 'imsi-001010000000099'"),
-             'bad-dnn':("apn: 'internet'", "apn: 'not-allowed.example'"),
-             'bad-slice':('sd: 66051','sd: 66052')}
-    before,after=changes[variant]
-    if before not in text:raise ValueError('variant input no longer matches public fixture')
-    (target/'ue.yaml').write_text(text.replace(before,after))
-    lab.config['radio_configs']=str(target)
+    lab.config['ue_variant']=variant
     unexpected=False
     try:
         lab.radio('ueransim',1,core);unexpected=True
@@ -248,12 +238,17 @@ def main():
     if not 10<=args.seconds<=86400 or not 1<=args.cycles<=1000 or not 1<=args.ue_count<=253 or not .01<=args.mbps<=1000:
         parser.error('parameters out of bounds')
     if args.case in ('churn','fresh-recovery','fresh-session') and (args.radio!='ueransim' or args.ue_count!=1):parser.error('this case requires one initial UERANSIM UE')
-    def interrupted(signum,frame):raise InterruptedError(f'signal {signum}')
+    lab=None
+    def interrupted(signum,frame):
+        if lab is None:raise InterruptedError(f'signal {signum}')
+        lab.interrupt(signum)
     signal.signal(signal.SIGTERM,interrupted);signal.signal(signal.SIGINT,interrupted)
     plan=read(args.plan);check_inputs(plan)
     args.output.mkdir(parents=True,exist_ok=False)
     config=read(Path(plan['driver'][-1]));config['resource_sample_seconds']=1 if args.case=='soak' else .1
     config['enable_radio_commands']=args.case=='churn'
+    config['candidate']=args.core
+    config['monitor_registration']=False
     lab=Lab(config,args.output)
     receipt={'case':args.case,'core':args.core,'radio':args.radio,'host':host_identity(),'plan_sha256':digest(args.plan),
              'runner_sha256':digest(__file__),'adapter_sha256':digest(Path(__file__).with_name('native_lab.py')),'parameters':{k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},'passed':False}
@@ -262,7 +257,7 @@ def main():
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         try:
             lab.setup();start_core(lab,args.core,2 if args.case in ('fresh-recovery','fresh-session') else args.ue_count)
-            capture=lab.start('capture',['tcpdump','-i','lo','-s','0','-c','4000','-U','-w',args.output/'n2-n3.pcap','sctp or udp port 2152'])
+            capture=lab.start('capture',['tcpdump','-i','any','-s','0','-c','4000','-U','-w',args.output/'n2-n3.pcap','sctp or udp port 2152'],namespace=lab.radio_ns)
             lab.wait(lambda:'listening on' in (args.output/'capture.log').read_text())
             if args.case=='reject':
                 receipt['passed']=rejected(lab,args.core,args.variant)

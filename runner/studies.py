@@ -88,10 +88,11 @@ def _base_plan(profile, lab, output):
         plan=validate_plan(read(Path(lab['prepared_plan']).resolve()))
         check_inputs(plan)
         return plan
-    native=lab['native']
+    native=dict(lab['native'])
+    native.setdefault('minimum_subscribers',1)
     allowed={'ueransim','open5gs_bin','free5gc','extension','extension_config',
              'iperf_bin','iperf_build_receipt','runtime_environment','requirements','mongo_image','max_host_busy_percent','ella_bin','qcore_bin','layout',
-             'user_plane','kernel_gtp_module','cipher_algorithm','slice_sd','provisioned_sqn','core_cpus','gnb_cpus','generator_cpus','observer_cpus'}
+             'minimum_subscribers','user_plane','kernel_gtp_module','cipher_algorithm','slice_sd','provisioned_sqn','core_cpus','gnb_cpus','generator_cpus','observer_cpus'}
     keys(native,allowed,'native lab')
     if not native.get('ueransim'):raise ValueError('native lab needs the built UERANSIM path')
     argv=[sys.executable,str(ROOT/'native_lab.py'),'prepare','--output',str(output/'prepared')]
@@ -270,10 +271,11 @@ def _report(directory):
             candidate=next(c for c in plan['candidates'] if c['id']==entry['candidate'])
             common={**{k:plan['protocol'].get(k,'') for k in ('duration_seconds','warmup_seconds','packet_bytes','offered_mbps_per_ue','security','user_plane')},
                     'core_identity':candidate['identity']['core'],'radio_identity':candidate['identity']['radio'],
-                    'features':m.get('features',{}),'quality_errors':m.get('quality_errors',[]),
+                    'provisioned_subscribers':m.get('provisioned_subscribers','not recorded'),'features':m.get('features',{}),'quality_errors':m.get('quality_errors',[]),
                     'case':step['case'],'cohort':step['cohort'],'trial':entry['id'],'candidate':entry['candidate'],
                     'ue_count':entry['ue_count'],'repetition':entry['repetition'],'kind':m.get('kind',plan['mode']),
                     'status':row['status'] if row else 'missing','cleanup_ok':m.get('cleanup_ok',False),
+                    'driver_return_code':row.get('driver_return_code','not recorded') if row else '',
                     'error':row['error'] if row else 'not collected'}
             outcomes.append(common)
             for name in sorted(set(m.get('metrics',{}))|set(m.get('metric_errors',{}))|set(plan.get('metrics',METRICS))):

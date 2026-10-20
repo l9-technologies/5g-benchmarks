@@ -4,11 +4,15 @@ from pathlib import Path
 import re
 import shutil
 from runner.evidence import write
-from .common import KEY,OPC,FREE_NFS,initial_sqn,service_profile,subscriber_sqn
+from .common import KEY,OPC,FREE_NFS,initial_sqn,service_profile,subscriber_sqn,subscriber_population
+
+
+def registered_nf_ids(log):
+    return set(re.findall(r"\|\s*201\s*\|[^\n]*\|\s*PUT\s*\|\s*/nnrf-nfm/v1/nf-instances/([0-9a-f-]{36})(?=\s|$)",log))
 
 
 def start(lab, count):
-    count=max(count,2)  # Retain a second identity for the fresh-session recovery checks.
+    count=subscriber_population(lab.config,count)
     profile=service_profile(lab.config)
     root = Path(lab.config["free5gc"])
     conf = lab.output / "free5gc"
@@ -79,3 +83,4 @@ def start(lab, count):
             lab.wait(lambda: "8000" in lab.ns(lab.core_ns, ["ss", "-lntH"]))
     lab.wait(lambda: "38412" in lab.ns(lab.core_ns, ["ss", "-lSnH"]))
     lab.wait(lambda: "PFCP Association Setup Accepted" in (lab.output / "core-smf.log").read_text())
+    lab.wait(lambda: len(registered_nf_ids((lab.output/'core-nrf.log').read_text()))==8)

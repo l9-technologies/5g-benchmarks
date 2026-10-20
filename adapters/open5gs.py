@@ -2,16 +2,16 @@
 import argparse
 from pathlib import Path
 from runner.evidence import read,write
-from .common import KEY,OPC,OPEN_NFS,module,service_profile,subscriber_sqn
+from .common import KEY,OPC,OPEN_NFS,module,service_profile,subscriber_sqn,subscriber_population
 
 
 def start(lab, count):
-    count=max(count,2)  # Retain a second identity for the fresh-session recovery checks.
+    count=subscriber_population(lab.config,count)
     profile=service_profile(lab.config)
     conf = lab.output / "open5gs"
     config_module = module(Path(lab.config["configuration_tool"]), "benchmark_open5gs_config")
     config_module.configure(argparse.Namespace(config_dir=conf, profile=Path(lab.config["profile"]),
-        interface="lo", n3_bind_host=lab.config.get("n3_ip","127.0.0.1"), n3_advertise_host=lab.config.get("n3_ip","127.0.0.1"), metadata=lab.output / "open5gs.json"))
+        slice_sd=profile["slice_sd"], interface="lo", n3_bind_host=lab.config.get("n3_ip","127.0.0.1"), n3_advertise_host=lab.config.get("n3_ip","127.0.0.1"), metadata=lab.output / "open5gs.json"))
     # Use direct NRF discovery for every NF. No host service or host config is changed.
     addresses = {"nrf": "127.0.0.10", "scp": "127.0.0.200", "ausf": "127.0.0.11", "udm": "127.0.0.12",
                  "udr": "127.0.0.20", "pcf": "127.0.0.13", "nssf": "127.0.0.14", "bsf": "127.0.0.15",
@@ -27,11 +27,6 @@ def start(lab, count):
         if nf == "amf":
             data[nf]["ngap"]["server"] = [{"address": lab.config.get("n2_ip","127.0.0.1")}]
             data[nf]["security"] = {"integrity_order": ["NIA2"], "ciphering_order": ["NEA"+str(profile["cipher_algorithm"])]}
-        if nf=='amf':
-            for plmn in data[nf].get('plmn_support',[]):
-                for slice_ in plmn.get('s_nssai',[]):slice_['sd']=profile['slice_sd']
-        if nf=='nssf':
-            for entry in data[nf].get('nsi',[]):entry['s_nssai']['sd']=profile['slice_sd']
         write(path, data)
     lab.ns(lab.core_ns, ["ip", "tuntap", "add", "ogstun", "mode", "tun"])
     lab.ns(lab.core_ns, ["ip", "addr", "add", "10.45.0.1/24", "dev", "ogstun"])
@@ -50,3 +45,4 @@ def start(lab, count):
         lab.start(f"core-{nf}", [Path(lab.config["open5gs_bin"]) / f"open5gs-{nf}d", "-c", conf / f"{nf}.yaml"], role="core")
     lab.wait(lambda: "38412" in lab.ns(lab.core_ns, ["ss", "-lSnH"]))
     lab.wait(lambda: "PFCP associated" in (lab.output / "core-smf.log").read_text())
+    lab.wait(lambda: all('NF registered [Heartbeat:' in (lab.output/f'core-{nf}.log').read_text() for nf in OPEN_NFS if nf not in ('nrf','upf')))
