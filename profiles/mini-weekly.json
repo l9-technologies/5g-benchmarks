@@ -43,7 +43,8 @@
         "session_p50_ms",
         "session_p95_ms",
         "session_p99_ms"
-      ]
+      ],
+      "user_plane": "ueransim"
     },
     {
       "id": "connect-10",
@@ -65,7 +66,8 @@
         "session_p50_ms",
         "session_p95_ms",
         "session_p99_ms"
-      ]
+      ],
+      "user_plane": "ueransim"
     },
     {
       "id": "load-10",
@@ -86,7 +88,8 @@
         "tcp_dl_ping_loss_percent",
         "core_idle_pss_bytes",
         "core_pss_peak_bytes"
-      ]
+      ],
+      "user_plane": "linux-gtp"
     },
     {
       "id": "load-50",
@@ -107,7 +110,8 @@
         "tcp_dl_ping_loss_percent",
         "core_idle_pss_bytes",
         "core_pss_peak_bytes"
-      ]
+      ],
+      "user_plane": "linux-gtp"
     }
   ],
   "confirmation": [

@@ -35,6 +35,7 @@ METRICS = {
         "binary_bytes": ("bytes", "lower"),
     }.items()},
 }
+USER_PLANES = ("ueransim","linux-gtp")
 FEATURES = ("registration", "pdu_session", "n2_ngap", "n3_gtpu", "external_n6",
             "tcp", "udp", "distinct_ue_addresses", "multi_ue_isolation", "cleanup", "paging", "handover",
             "session_release", "deregistration", "restart_recovery", "ipv6",
@@ -64,6 +65,7 @@ def validate_plan(plan):
         raise ValueError('unknown or duplicate traffic mode')
     for name,low,high in [('probe_interval_seconds',.001,1),('resource_sample_seconds',.01,5),('load_tolerance_percent',0,10)]:
         if name in protocol:number(protocol[name],name,low,high)
+    if 'user_plane' in protocol and protocol['user_plane'] not in USER_PLANES:raise ValueError('unknown user-plane implementation')
     counts = protocol["ue_counts"]
     if not counts or len(set(counts)) != len(counts) or any(type(n) is not int or not 1 <= n <= 512 for n in counts):
         raise ValueError("UE counts must be distinct integers from 1 through 512")

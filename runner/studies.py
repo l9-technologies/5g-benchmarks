@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from .contracts import METRICS, FEATURES, balanced_repetitions, number, schedule, validate_plan
+from .contracts import METRICS, FEATURES, USER_PLANES, balanced_repetitions, number, schedule, validate_plan
 from .evidence import check_inputs, digest, object_hash, read, verified_trials, write
 from .execution import run
 from .reporting import make_report
@@ -18,7 +18,7 @@ from .snapshot import save_report_tool
 
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL_KEYS = {'duration_seconds', 'warmup_seconds', 'packet_bytes', 'offered_mbps_per_ue',
-                 'traffic_modes', 'probe_interval_seconds', 'resource_sample_seconds','load_tolerance_percent'}
+                 'user_plane','traffic_modes', 'probe_interval_seconds', 'resource_sample_seconds','load_tolerance_percent'}
 
 def keys(value, allowed, name):
     if not isinstance(value, dict):
@@ -68,6 +68,7 @@ def validate_profile(profile):
             raise ValueError('unknown or duplicate traffic mode')
         for field,low,high in [('duration_seconds',2,3600),('warmup_seconds',1,300),('packet_bytes',64,1400),('offered_mbps_per_ue',.01,10000)]:
             if field in protocol:number(protocol[field],field,low,high)
+        if 'user_plane' in protocol and protocol['user_plane'] not in USER_PLANES:raise ValueError('unknown user-plane implementation')
         if 'load_tolerance_percent' in protocol:number(protocol['load_tolerance_percent'],'load tolerance',0,10)
         if 'probe_interval_seconds' in protocol:number(protocol['probe_interval_seconds'],'probe interval',.001,1)
         if 'resource_sample_seconds' in protocol:number(protocol['resource_sample_seconds'],'resource sample interval',.01,5)
@@ -90,6 +91,7 @@ def _base_plan(profile, lab, output):
         return plan
     native=dict(lab['native'])
     native.setdefault('minimum_subscribers',1)
+    if any(case.get('user_plane',profile.get('defaults',{}).get('user_plane'))=='linux-gtp' for case in profile['cases']):native['user_plane']='linux-gtp'
     allowed={'ueransim','open5gs_bin','free5gc','extension','extension_config',
              'iperf_bin','iperf_build_receipt','runtime_environment','requirements','mongo_image','max_host_busy_percent','ella_bin','qcore_bin','layout',
              'minimum_subscribers','user_plane','kernel_gtp_module','cipher_algorithm','slice_sd','provisioned_sqn','core_cpus','gnb_cpus','generator_cpus','observer_cpus'}
@@ -115,6 +117,7 @@ def compile_plans(profile,base):
         if base['mode']=='live' and any(metric.startswith(('tcp_ul_rtt_','tcp_dl_rtt_','udp_ul_rtt_','udp_dl_rtt_')) for metric in case['metrics']) and base['protocol'].get('probe_window_contract')!='timer-and-ue-pcap-v1':
             raise ValueError('loaded RTT metrics need the instrumented traffic generator and UE packet capture contract')
         protocol={**base['protocol'],**profile.get('defaults',{}),**{k:v for k,v in case.items() if k in PROTOCOL_KEYS},'ue_counts':case['ue_counts']}
+        if base['mode']=='live' and protocol.get('user_plane')=='linux-gtp' and not base['protocol'].get('kernel_gtp_available'):raise ValueError('the prepared lab has no pinned Linux GTP generator')
         for cohort in ['main']+(['confirmation'] if case['id'] in profile.get('confirmation',[]) else []):
             plan={**base,'candidates':candidates,'protocol':protocol,'metrics':case['metrics'],
                   'seed':profile['seed'],'repetitions':repetitions,'equivalence_percent':profile['equivalence_percent'],
@@ -165,7 +168,7 @@ def check(profile_path,lab_path,output):
             target=output/step['run'];target.parent.mkdir(parents=True,exist_ok=True)
             with contextlib.redirect_stdout(sys.stderr):run(output/step['plan'],target,max_trials=count,report_on_finish=False)
             batch,_=collected(output,step);rows+=batch
-            if any(not r['measurement'].get('cleanup_ok') for r in batch):break
+            if any(r['status']!='passed' or not r['measurement'].get('cleanup_ok') or set(read(output/step['plan'])['metrics'])-r['measurement'].get('metrics',{}).keys() or set(read(output/step['plan'])['metrics']) & r['measurement'].get('metric_notes',{}).keys() for r in batch):break
     expected=count*len(manifest['steps'])
     selected={step['case']:set(read(output/step['plan'])['metrics']) for step in manifest['steps']}
     failed_observations=[]

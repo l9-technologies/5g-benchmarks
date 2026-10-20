@@ -63,7 +63,7 @@ A confirmation match is a statistical screen, not independent verification or st
 
 Process PSS includes the selected database only when the driver accounts for it. It excludes kernel and eBPF memory. Whole-guest memory includes the generator when it shares that guest. Use a separate generator guest and an admitted driver to test core-only guest memory. Keep that topology separate from the existing single-guest measurements.
 
-The supported case overrides are `duration_seconds`, `warmup_seconds`, `packet_bytes`, `offered_mbps_per_ue`, `traffic_modes`, `probe_interval_seconds`, and `resource_sample_seconds`, and `load_tolerance_percent`. An adapter must implement the selected protocol. Unknown keys are errors. The study file, compiled plans, lab file, and tool hashes are saved with the results.
+The supported case overrides are `duration_seconds`, `warmup_seconds`, `packet_bytes`, `offered_mbps_per_ue`, `traffic_modes`, `probe_interval_seconds`, and `resource_sample_seconds`, `user_plane`, and `load_tolerance_percent`. An adapter must implement the selected protocol. Unknown keys are errors. The study file, compiled plans, lab file, and tool hashes are saved with the results.
 
 ## Mini lab settings
 
@@ -78,6 +78,7 @@ Prepare the Linux VM and core artifacts once. Keep this lab inventory outside th
     "ella_bin": "/opt/bin/ella-core",
     "qcore_bin": "/opt/bin/qcore-interop-gigabit",
     "layout": "split",
+    "kernel_gtp_module": "/opt/benchmark/generator/gtp.ko",
     "iperf_bin": "/opt/benchmark/iperf/install/bin/iperf3",
     "iperf_build_receipt": "/opt/benchmark/iperf/build-receipt.json",
     "cipher_algorithm": 0,
@@ -110,3 +111,5 @@ This creates a clean public-tool export. It checks every prepared core with real
 On a shared Mini, run stages in separate reserved windows with `--stage interoperability`, `profile`, `resume`, `interrupt`, and `replay`. Use the same input files and output directory for every stage. Completed stages remain saved. A changed tool, source export, profile, or lab file requires a new verification output. The `replay` stage only reads saved traffic evidence and can run after CI is restored.
 
 A bounded run returns exit 2 if it records a failure, even when collection is partial. Resume keeps that failure. Exit 0 is not permission to publish performance claims; inspect feature, measurement-boundary, repeated-baseline, confirmation, and independent-review results.
+
+Connection cases use the UERANSIM user plane for their N6 reply checks. Loaded cases use the common Linux GTP endpoint. This choice is explicit in each case and stays the same for every core. Preparation pins the generator capability before collection.

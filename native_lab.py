@@ -18,7 +18,7 @@ import threading
 import time
 from datetime import datetime
 
-from benchmark import balanced_repetitions, FEATURES, METRICS, digest, number, object_hash, percentile, read, stop_group, validate_plan, write
+from benchmark import balanced_repetitions, FEATURES, METRICS, USER_PLANES, digest, number, object_hash, percentile, read, stop_group, validate_plan, write
 
 from adapters import open5gs,free5gc,ueransim,ella,qcore,kernel_gtp,session_ambr,steering,probe_window
 from adapters.common import NFS,OPEN_NFS,FREE_NFS,KEY,OPC,UE_ROUTE_TABLE_BASE,initial_sqn,command,module,service_profile,subscriber_sqn,subscriber_population
@@ -319,7 +319,7 @@ def prepare(args):
                 "offered_mbps_per_ue": args.mbps, "security": service["security"], "plmn": "00101",
                 "slice": service["slice"], "dnn": "internet", "session_ambr_mbps": 1000,
                 "ambr_scope": "subscription configuration and N2 signalling target; NAS rate conformance and enforcement are untested",
-                "transport": "IPv4", "minimum_subscribers":args.minimum_subscribers,"probe_window_contract":probe_contract,"user_plane":args.user_plane,"path": "UE TUN -> gNB -> N3 -> UPF TUN -> N6 veth -> receiver",
+                "transport": "IPv4", "minimum_subscribers":args.minimum_subscribers,"probe_window_contract":probe_contract,"kernel_gtp_available":args.user_plane=="linux-gtp","user_plane":args.user_plane,"path": "UE TUN -> gNB -> N3 -> UPF TUN -> N6 veth -> receiver",
                 "n6_nat": True,
                 "network_functions": {"open5gs": OPEN_NFS, "free5gc": FREE_NFS},
                 "discovery": "direct NRF; Open5GS requires BSF for its PCF session path",
@@ -854,6 +854,7 @@ def trial(config_path):
     count = int(os.environ["BENCH_UE_COUNT"])
     config=read(config_path)
     config["candidate"]=candidate["core"]
+    config["user_plane"]=plan["protocol"].get("user_plane",config.get("user_plane","ueransim"))
     config["resource_sample_seconds"]=plan["protocol"].get("resource_sample_seconds",.1)
     if config.get("observer_cpus"):os.sched_setaffinity(0,config["observer_cpus"])
     lab = Lab(config, output)
@@ -972,7 +973,7 @@ def main():
     p.add_argument('--extension',type=Path)
     p.add_argument('--extension-config',type=Path)
     p.add_argument('--requirements',type=Path,default=ROOT/'requirements.json')
-    p.add_argument('--user-plane',choices=('ueransim','linux-gtp'),default='ueransim')
+    p.add_argument('--user-plane',choices=USER_PLANES,default='ueransim')
     p.add_argument('--kernel-gtp-module',type=Path)
     p.add_argument("--iperf-bin", type=Path)
     p.add_argument("--iperf-build-receipt", type=Path)
