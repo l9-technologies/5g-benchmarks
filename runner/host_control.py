@@ -49,7 +49,8 @@ def reservation(config):
         yield handles
 
 def identity(pid):
-    return subprocess.run(['ps','-p',str(pid),'-o','lstart='],capture_output=True,text=True).stdout.strip()
+    row=subprocess.run(['ps','-p',str(pid),'-o','stat=,lstart='],capture_output=True,text=True).stdout.strip().split(None,1)
+    return row[1] if len(row)==2 and not row[0].startswith('Z') else ''
 
 def launch(argv,cwd,env,stdout,stderr,path,deadline):
     request={'argv':list(map(str,argv)),'cwd':str(cwd),'owner_pid':os.getpid(),'owner_identity':identity(os.getpid()),

@@ -4,6 +4,7 @@ import fcntl
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tarfile
 from .contracts import schedule,validate_plan
 from .evidence import check_inputs,read
@@ -88,6 +89,6 @@ def main():
             report = make_report(args.directory.resolve())
         print(json.dumps({"status": report["status"], "trial_count": report["trial_count"]}))
         return 2 if report["status"] == "incomplete" else 0
-    except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, EOFError) as error:
+    except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, EOFError, subprocess.SubprocessError) as error:
         print(f"benchmark: {error}", file=sys.stderr)
         return 2

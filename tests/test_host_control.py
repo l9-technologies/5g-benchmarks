@@ -72,10 +72,10 @@ print(json.dumps(result))
        lease=json.loads(paths[0].read_text())
        if lease.get('job_pid'):break
       time.sleep(.05)
-     self.assertIsNotNone(lease);self.assertTrue(lease.get('job_pid'));proc.kill();proc.wait(timeout=5)
+     self.assertIsNotNone(lease);self.assertTrue(lease.get('job_pid'));proc.kill()  # Leave a zombie until restoration is proved.
      end=time.monotonic()+15
      while time.monotonic()<end and not json.loads(paths[0].read_text()).get('restored'):time.sleep(.1)
-     self.assertTrue(json.loads(paths[0].read_text())['restored']);self.assertEqual((r/'ci-state').read_text(),'running')
+     self.assertTrue(json.loads(paths[0].read_text())['restored']);self.assertEqual((r/'ci-state').read_text(),'running');proc.wait(timeout=5)
     finally:
      if proc.poll() is None:proc.kill();proc.wait()
 
