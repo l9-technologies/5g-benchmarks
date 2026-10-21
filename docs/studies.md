@@ -152,3 +152,15 @@ For a UDP mixture, set `packet_bytes_by_stream` to one payload size per stream a
 Run [generator calibration](calibration.md) before choosing a load grid or searching for capacity. These settings do not add a capacity search, make a largest passing point a maximum, or establish connection-storm and recovery performance. Keep performance confirmation separate from tool checks.
 
 `readiness_timeout_seconds` declares a shared 1..10-second readiness window. It sends probes at five per second, retains all loss and first-reply timestamps, and requires a reply from every UE within the window. The startup metric uses the last UE's first captured reply with wall-to-monotonic alignment within 1 ms. This is a new prospective timing definition; do not pool it with the earlier three-probe check. Without this field, the earlier behavior remains.
+
+## Functional checks before stress loads
+
+A stress case can exceed a core's delivery limit. Keep that outcome in timed data. To verify functional setup at a separate declared rate, add this optional profile field:
+
+```json
+"verification": {"offered_mbps_per_ue": 1, "duration_seconds": 5, "warmup_seconds": 1}
+```
+
+These settings apply only to the health checks. Each check still uses the case's largest device count, packet pattern, metrics, required features, quality limits, security settings, and cleanup checks. Duration must be an integer from 2 through 300 seconds; warm-up must be an integer from 1 through 30 seconds. Without this field, checks retain the existing five-second observation, one-second warm-up and full case rate.
+
+The frozen source profile and generated check plan record the selected rate. Main and confirmation plans keep their full declared workloads. A passed functional check does not establish performance at those loads. Failed stress trials remain in the report and archive, and block the affected comparisons. A failed functional check or cleanup still stops collection. This setting cannot change required features or quality limits.
