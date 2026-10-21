@@ -10,4 +10,4 @@ For the tested QCore recipe, use Rust 1.97.1 for the host build, `nightly-2026-1
 
 Public adapters launch installed artifacts. They do not download a private core, supply its source, or override its license. Core binaries, subscriber databases, captures, host inventories, and live receipts stay outside this repository.
 
-The iperf clock patch changes iperf 3.16, Copyright The Regents of the University of California through Lawrence Berkeley National Laboratory. Preserve the upstream BSD-style license and notices. The build uses the complete upstream source archive and keeps its license. Only the small instrumentation patch is stored here.
+The iperf clock patch changes iperf 3.16, Copyright The Regents of the University of California through Lawrence Berkeley National Laboratory. Preserve the upstream BSD-style license and notices. The build uses the complete upstream source archive and keeps its license. The small clock patch and the complete upstream CPU pacing fix at commit `783095e138b7257dfcbf4e9aa2a48685d14c7f16` are stored here. Preserve the upstream copyright and license for both.

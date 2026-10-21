@@ -7,6 +7,7 @@ import contextlib
 import bisect
 import errno
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -20,6 +21,7 @@ from datetime import datetime
 
 from benchmark import balanced_repetitions, FEATURES, METRICS, USER_PLANES, digest, number, object_hash, percentile, read, stop_group, validate_plan, write
 
+from runner.contracts import packet_sizes
 from adapters import open5gs,free5gc,ueransim,ella,qcore,kernel_gtp,session_ambr,steering,probe_window
 from adapters.common import NFS,OPEN_NFS,FREE_NFS,KEY,OPC,UE_ROUTE_TABLE_BASE,initial_sqn,command,module,service_profile,subscriber_sqn,subscriber_population
 
@@ -187,13 +189,7 @@ def prepare(args):
     service=service_profile(vars(args))
     subscriber_population(vars(args),1)
     iperf=Path(args.iperf_bin or shutil.which('iperf3') or '').resolve()
-    probe_contract=None
-    if args.iperf_build_receipt:
-        receipt=read(args.iperf_build_receipt)
-        if receipt.get('instrumentation')!='traffic-phase-v1' or receipt.get('binary_sha256')!=digest(iperf) or receipt.get('patch_sha256')!=digest(ROOT/'patches/iperf-3.16-phase-clock.patch'):
-            raise ValueError('traffic generator build receipt differs from its binary or clock patch')
-        if {c.get('mode') for c in receipt.get('checks',[]) if c.get('passed')}!={'tcp_ul','tcp_dl','udp_ul','udp_dl'}:raise ValueError('traffic generator checks are incomplete')
-        probe_contract='timer-and-ue-pcap-v1'
+    probe_contract=probe_window.generator_contract(iperf,args.iperf_build_receipt)
     runtime_environment=read(args.runtime_environment) if args.runtime_environment else {'cores':{},'processes':{}}
     if not isinstance(runtime_environment,dict) or set(runtime_environment)-{'cores','processes'}:raise ValueError('runtime environment must declare cores and processes')
     for group in runtime_environment.values():
@@ -216,7 +212,7 @@ def prepare(args):
         if len(set(assigned))!=len(assigned) or not set(assigned)<=os.sched_getaffinity(0):raise ValueError('CPU roles must be disjoint and available')
     paths=[iperf]
     executables=[iperf]
-    if args.iperf_build_receipt:paths += [args.iperf_build_receipt.resolve(),ROOT/'patches/iperf-3.16-phase-clock.patch',ROOT/'scripts/build-iperf.py']
+    if args.iperf_build_receipt:paths += [args.iperf_build_receipt.resolve(),ROOT/'patches/iperf-3.16-phase-clock.patch',ROOT/'patches/iperf-3.16-pacing.patch',ROOT/'scripts/build-iperf.py']
     if args.runtime_environment:paths.append(args.runtime_environment.resolve())
     if args.user_plane=='linux-gtp':
         paths += [kernel]+sorted(Path(pyroute2.__file__).resolve().parent.rglob('*.py'))+sorted(Path(pyroute2.__file__).resolve().parent.rglob('*.so'))
@@ -646,21 +642,41 @@ class Lab:
                 else:
                     metric_errors[name] = "no probe replies"
 
-        ready_clients = probes("ready", 3, .05)
-        ready_rows = []
-        for n, p in enumerate(ready_clients):
-            p.wait(timeout=10)
-            ready_rows.append(ping_metrics((self.output / f"ready-ping-{n}.log").read_text()))
-        write(self.output / "traffic-readiness.json", ready_rows)
-        if all(row["received"] > 0 for row in ready_rows) and hasattr(self, "startup_started"):
-            metrics["stack_traffic_ready_ms"] = (time.monotonic() - self.startup_started) * 1000
+        ready_timeout=protocol.get('readiness_timeout_seconds')
+        ready_wall,ready_mono=time.time(),time.monotonic()
+        ready_clients = probes("ready", math.ceil(ready_timeout/.2) if ready_timeout else 3, .2 if ready_timeout else .05)
+        ready_rows=[];first_epochs=[]
+        for n,p in enumerate(ready_clients):
+            p.wait(timeout=ready_timeout+3 if ready_timeout else 10)
+            text=(self.output/f"ready-ping-{n}.log").read_text();row=ping_metrics(text)
+            replies=[float(m[1]) for line in text.splitlines() if (m:=re.match(r"\[([0-9.]+)\].*bytes from",line))]
+            if ready_timeout:
+                first=min(replies) if replies else None
+                row.update(first_reply_epoch=first,within_deadline=first is not None and 0<=first-ready_wall<=ready_timeout)
+                if first is not None:first_epochs.append(first)
+            ready_rows.append(row)
+        write(self.output/"traffic-readiness.json",ready_rows)
+        clock_error=abs((time.time()-ready_wall)-(time.monotonic()-ready_mono))
+        ready=all(row.get('within_deadline',row['received']>0) for row in ready_rows)
+        if ready_timeout:
+            write(self.output/'readiness-window.json',{'start_epoch':ready_wall,'start_monotonic':ready_mono,'deadline_seconds':ready_timeout,'clock_error_seconds':clock_error,'rows':ready_rows})
+            if clock_error>.001:quality.append('readiness clock alignment exceeds 1 ms')
+        if ready and hasattr(self,"startup_started"):
+            end=ready_mono+max(first_epochs)-ready_wall if ready_timeout else time.monotonic()
+            metrics["stack_traffic_ready_ms"]=(end-self.startup_started)*1000
         else:
-            metric_errors["stack_traffic_ready_ms"] = "at least one UE has no initial external reply"
+            metric_errors["stack_traffic_ready_ms"]="at least one UE has no external reply within the readiness check"
             quality.append("at least one UE has no initial external N6 reply")
         for n, _ in enumerate(interfaces):
             self.start(f"server-{n}", [self.config.get("iperf3","iperf3"), "-s", "-B", "192.0.2.1", "-p", str(5201 + n)], namespace=self.dn_ns, role='traffic', required=True)
         collect_probes("idle", probes("idle", 20, .05))
+        if 'idle_seconds' in protocol:
+            idle_start=len(self.samples);idle_started=time.monotonic()
+            time.sleep(protocol['idle_seconds'])
+            idle_ended=time.monotonic()
+            write(self.output/'idle-window.json',{'start_monotonic':idle_started,'end_monotonic':idle_ended,'declared_seconds':protocol['idle_seconds'],'traffic':'no UE traffic after readiness and idle probes'})
         idle_samples = self.samples[idle_start:]
+        if 'idle_seconds' in protocol:idle_samples=[s for s in idle_samples if idle_started<=s.get('time',-1)<=idle_ended]
         if idle_samples:
             for role in ("core", "ue", "gnb"):
                 for name in ("rss", "pss"):
@@ -673,12 +689,13 @@ class Lab:
             processes = []
             timer_paths=[]
             probe_capture=None
+            sizes=packet_sizes(protocol,len(interfaces))
             for n, (interface, ip) in enumerate(interfaces):
                 args = [self.config.get("iperf3","iperf3"), "-c", "192.0.2.1", "-p", str(5201 + n), "-B", ip,
                         "-t", str(protocol["duration_seconds"]), "-O", str(protocol["warmup_seconds"]), "-J", "--get-server-output",
                         "-b", f"{protocol['offered_mbps_per_ue']}M"]
                 if mode.startswith("udp"):
-                    args += ["-u", "-l", str(protocol["packet_bytes"])]
+                    args += ["-u", "-l", str(sizes[n])]
                 else:
                     args += ["-M", str(protocol["packet_bytes"]), "-l", "131072"]
                 if mode.endswith("dl"):
@@ -703,6 +720,7 @@ class Lab:
                         raise ValueError(f"{mode} client failed; see its log")
                 phase_ended = time.monotonic()
                 rates, lost, packets, bytes_received, jitters, retransmits = [], 0, 0, 0, [], 0
+                pps=0
                 for n in range(len(interfaces)):
                     data = read(self.output / f"{mode}-{n}.log")
                     rate, loss = receiver_metrics(data, mode.startswith("udp"))
@@ -715,6 +733,7 @@ class Lab:
                         retransmits += sender["retransmits"]
                     if loss is not None:
                         row = data["end"]["sum_received"]
+                        pps += (row["packets"]-row["lost_packets"])/row["seconds"]
                         packets += row["packets"]
                         lost += row["lost_packets"]
                         jitters.append((row["jitter_ms"], row["packets"]))
@@ -722,6 +741,7 @@ class Lab:
                     raise ValueError("UDP receiver packet count is zero")
                 metrics[f"{mode}_mbps"] = sum(rates)
                 if mode.startswith("udp"):
+                    metrics[f"{mode}_pps"] = pps
                     metrics[f"{mode}_loss_percent"] = 100 * lost / packets
                     metrics[f"{mode}_jitter_ms"] = sum(j * p for j, p in jitters) / packets
                 else:

@@ -142,3 +142,13 @@ Use `--stage profile --case load-10` to check one declared case per window. Chec
 A bounded run returns exit 2 if it records a failure, even when collection is partial. Resume keeps that failure. Exit 0 is not permission to publish performance claims; inspect feature, measurement-boundary, repeated-baseline, confirmation, and independent-review results.
 
 Connection cases use the UERANSIM user plane for their N6 reply checks. Loaded cases use the common Linux GTP endpoint. This choice is explicit in each case and stays the same for every core. Preparation pins the generator capability before collection.
+
+## Buyer measurement profiles
+
+`idle_seconds` adds a declared interval without UE traffic after readiness and brief idle probes. Memory samples come from this interval; `idle-window.json` records its bounds. Earlier idle ping values describe the preceding probe interval. Existing profiles without this field retain their original behavior. Compare registered idle process memory separately from loaded memory. Process PSS still omits kernel and eBPF memory; a separate generator topology is required for whole-core guest memory.
+
+For a UDP mixture, set `packet_bytes_by_stream` to one payload size per stream and select explicit UDP modes. The list length must equal every device count in that case. Each stream has the same offered bitrate; a five-small/five-large pattern is not an equal-packet-count mixture. TCP with this option is rejected. The optional `udp_ul_pps` and `udp_dl_pps` metrics sum actual receiver packet counts divided by each stream's measurement interval. Raw iperf results remain the source for packet loss, bytes, and intervals.
+
+Run [generator calibration](calibration.md) before choosing a load grid or searching for capacity. These settings do not add a capacity search, make a largest passing point a maximum, or establish connection-storm and recovery performance. Keep performance confirmation separate from tool checks.
+
+`readiness_timeout_seconds` declares a shared 1..10-second readiness window. It sends probes at five per second, retains all loss and first-reply timestamps, and requires a reply from every UE within the window. The startup metric uses the last UE's first captured reply with wall-to-monotonic alignment within 1 ms. This is a new prospective timing definition; do not pool it with the earlier three-probe check. Without this field, the earlier behavior remains.

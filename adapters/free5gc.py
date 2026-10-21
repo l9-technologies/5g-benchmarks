@@ -21,6 +21,10 @@ def start(lab, count):
     shutil.copytree(root/"source/cert",certificates)
     aliases = {"nrf": 10, "amf": 1, "smf": 4, "upf": 7, "ausf": 11, "udm": 12,
                "udr": 20, "pcf": 13, "nssf": 14, "chf": 15}
+    import yaml
+    class JsonConfigLoader(yaml.SafeLoader):
+        # Keep timestamp text while retaining numeric and boolean YAML types.
+        yaml_implicit_resolvers={k:[r for r in rows if r[0]!='tag:yaml.org,2002:timestamp'] for k,rows in yaml.SafeLoader.yaml_implicit_resolvers.items()}
     for nf in FREE_NFS:
         text = (root / "source/config" / f"{nf}cfg.yaml").read_text()
         for name, suffix in aliases.items():
@@ -35,8 +39,7 @@ def start(lab, count):
         # Preserve the upstream authorization requirement.
         if nf == "upf":
             text = text.replace("# ifname: gtpif", "ifname: gtpif").replace("# natifname: eth0", "natifname: dn0")
-        import yaml
-        data=yaml.safe_load(text)
+        data=yaml.load(text,Loader=JsonConfigLoader)
         configuration=data.get('configuration',{})
         if nf=='amf':
             configuration['ngapIpList']=[lab.config.get('n2_ip','127.0.0.1')]

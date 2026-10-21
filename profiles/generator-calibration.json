@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "rates_mbps": [
+    10,
+    50,
+    100,
+    250,
+    500,
+    1000
+  ],
+  "packet_bytes": [
+    64,
+    1200
+  ],
+  "streams": 10,
+  "duration_seconds": 30,
+  "warmup_seconds": 5,
+  "generator_cpus": [
+    3,
+    4
+  ],
+  "observer_cpus": [
+    5
+  ],
+  "loss_percent": 1,
+  "headroom_multiple": 2,
+  "receive_steering": true
+}
