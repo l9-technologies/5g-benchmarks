@@ -15,10 +15,10 @@ class CalibrationCommands(unittest.TestCase):
   from tests import test_studies
   with tempfile.TemporaryDirectory() as t:
    root=pathlib.Path(t);profile,lab,driver=test_studies.StudyCommands().inputs(root)
-   p=json.loads(profile.read_text());p['cases']=[{'id':'memory','ue_counts':[1,10,50],'metrics':['core_idle_pss_bytes'],'idle_seconds':30,'readiness_timeout_seconds':3,'traffic_modes':[]},{'id':'mixed','ue_counts':[10],'metrics':['udp_ul_pps'],'traffic_modes':['udp_ul'],'packet_bytes_by_stream':[64]*5+[1200]*5}];p['confirmation']=[];profile.write_text(json.dumps(p))
+   p=json.loads(profile.read_text());p['cases']=[{'id':'memory','ue_counts':[1,10,50],'metrics':['core_idle_pss_bytes'],'idle_seconds':30,'readiness_timeout_seconds':3,'probe_timestamp_precision':'nano','traffic_modes':[]},{'id':'mixed','ue_counts':[10],'metrics':['udp_ul_pps'],'traffic_modes':['udp_ul'],'packet_bytes_by_stream':[64]*5+[1200]*5}];p['confirmation']=[];profile.write_text(json.dumps(p))
    q=subprocess.run([sys.executable,str(ROOT/'benchmark.py'),'study','prepare',str(profile),'--lab',str(lab),'--output',str(root/'out')],capture_output=True,text=True,timeout=10)
    self.assertEqual(q.returncode,0,q.stderr)
-   memory=json.loads((root/'out/cases/memory/main/plan.json').read_text());self.assertEqual(memory['protocol']['idle_seconds'],30)
+   memory=json.loads((root/'out/cases/memory/main/plan.json').read_text());self.assertEqual(memory['protocol']['idle_seconds'],30);self.assertEqual(memory['protocol']['probe_timestamp_precision'],'nano')
    mixed=json.loads((root/'out/cases/mixed/main/plan.json').read_text());self.assertEqual(mixed['protocol']['packet_bytes_by_stream'],[64]*5+[1200]*5)
    p['cases'][1]['packet_bytes_by_stream']=[64];profile.write_text(json.dumps(p))
    bad=subprocess.run([sys.executable,str(ROOT/'benchmark.py'),'study','prepare',str(profile),'--lab',str(lab),'--output',str(root/'bad')],capture_output=True,text=True,timeout=10)

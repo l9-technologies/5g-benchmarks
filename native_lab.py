@@ -707,7 +707,7 @@ class Lab:
                     try:return all(any(json.loads(line)['event']=='warmup_end' for line in path.read_text().splitlines()) for path in timer_paths)
                     except (OSError,ValueError):return False
                 self.wait(warm,seconds=protocol['warmup_seconds']+15)
-                probe_capture=self.start(mode+'-probe-capture',['tcpdump','-i','any','-s','128','-U','-w',self.output/(mode+'-probes.pcap'),'icmp'],namespace=self.ue_ns)
+                probe_capture=self.start(mode+'-probe-capture',['tcpdump','-i','any','--time-stamp-precision',protocol.get('probe_timestamp_precision','micro'),'-s','128','-U','-w',self.output/(mode+'-probes.pcap'),'icmp'],namespace=self.ue_ns)
                 self.wait(lambda:probe_capture.poll() is not None or 'listening on' in (self.output/(mode+'-probe-capture.log')).read_text())
                 if probe_capture.poll() is not None:raise ValueError('probe capture failed')
                 time.sleep(.1)
@@ -769,11 +769,12 @@ class Lab:
                             os.killpg(probe_capture.pid,signal.SIGINT);probe_capture.wait(timeout=10)
                             capture_log=(self.output/(mode+'-probe-capture.log')).read_text()
                             if not re.search(r'(?m)^0 packets dropped by kernel$',capture_log):raise ValueError('probe capture drop count is missing or nonzero')
+                            precision=probe_window.capture_precision(self.output/(mode+'-probes.pcap'),protocol.get('probe_timestamp_precision','micro'))
                             fields=command(['tshark','-r',self.output/(mode+'-probes.pcap'),'-Y','icmp.type == 8 || icmp.type == 0','-T','fields','-E','occurrence=f',*sum((['-e',field] for field in ['frame.time_epoch','ip.src','ip.dst','icmp.type','icmp.ident','icmp.seq']),[])])
                             (self.output/(mode+'-probe-fields.tsv')).write_text(fields)
                             counts={ip:ping_metrics((self.output/f'{mode}-ping-{n}.log').read_text()) for n,(_,ip) in enumerate(interfaces)}
                             events=[[json.loads(line) for line in path.read_text().splitlines()] for path in timer_paths]
-                            proof=probe_window.verify(events,fields,counts);write(self.output/(mode+'-probe-window.json'),proof)
+                            proof=probe_window.verify(events,fields,counts,require_nanoseconds=precision=='nano');proof['timestamp_storage_precision']=precision;write(self.output/(mode+'-probe-window.json'),proof)
                             for quantile in (50,95,99):
                                 name=f'{mode}_rtt_p{quantile}_ms'
                                 if proof['rtts_ms']:metrics[name]=percentile(proof['rtts_ms'],quantile/100)

@@ -59,3 +59,9 @@ The clock patch records two events per client: the end of warm-up and the test t
 For each phase, a separate 128-byte capture records echo requests and replies inside the UE namespace. The verifier requires zero capture drops, exact agreement with per-UE sender counters, one timer pair per client, no duplicate or unmatched packets, and no clock step above 1 ms. Every captured request and reply must be inside the shared active interval. It does not clip slow replies to improve a percentile. RTT is the captured reply timestamp minus its request timestamp, before and after the software network path. Missing or invalid proof leaves a visible metric note and blocks that comparison.
 
 Timer events, raw probe captures, decoded fields, observed ping output, and the complete verification result remain with each trial. The saved method distinguishes these packet timestamps from application-level ping timing. Use fresh main and confirmation trials when this measurement boundary changes.
+
+## Packet timestamp precision
+
+Set `probe_timestamp_precision` to `nano` in study defaults or a case for new nanosecond captures. The default remains `micro` for existing profiles. The runner requests the declared precision, then reads the closed capture header and rejects a mismatch. A nano capture must contain timestamps below the microsecond step. An unsupported capture command fails the trial. A wrong format or quantized data leaves the RTT metric unverified. There is no silent fallback.
+
+This is timestamp storage precision, not a claim of nanosecond clock accuracy. Probe packets, clock-boundary checks, sample counts and comparison limits are unchanged. Keep previous data and use new output directories when precision changes. Use the same precision for every compared candidate and for main and confirmation. Check shared measurement overhead before timed comparison collection.

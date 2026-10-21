@@ -2,7 +2,20 @@
 from decimal import Decimal, InvalidOperation
 
 
-def verify(events, packets, counts):
+def capture_precision(path, expected):
+    """Read the saved format; a command option alone is not precision proof."""
+    import struct
+    with path.open('rb') as stream:header=stream.read(24)
+    formats={bytes.fromhex('d4c3b2a1'):('<','micro'),bytes.fromhex('a1b2c3d4'):('>','micro'),
+             bytes.fromhex('4d3cb2a1'):('<','nano'),bytes.fromhex('a1b23c4d'):('>','nano')}
+    if len(header)!=24 or header[:4] not in formats:raise ValueError('capture header is missing or unsupported')
+    order,precision=formats[header[:4]]
+    if struct.unpack(order+'HH',header[4:8])!=(2,4):raise ValueError('unsupported capture version')
+    if expected not in ('micro','nano') or precision!=expected:raise ValueError('capture timestamp precision differs from the declared profile')
+    return precision
+
+
+def verify(events, packets, counts, *, require_nanoseconds=False):
     if len(events)!=len(counts) or not counts:raise ValueError('traffic timer coverage differs from UE coverage')
     windows=[]
     for rows in events:
@@ -20,7 +33,7 @@ def verify(events, packets, counts):
         windows.append((first['epoch_ns']+1000000,last['epoch_ns']-1000000))
     begin=max(w[0] for w in windows);end=min(w[1] for w in windows)
     if begin>=end:raise ValueError('no shared traffic interval')
-    requests={};replies={}
+    requests={};replies={};submicrosecond=0
     for line in packets.splitlines():
         try:
             stamp,source,destination,kind,identifier,sequence=line.split('\t')
@@ -31,6 +44,7 @@ def verify(events, packets, counts):
             key=(address,int(identifier,0),int(sequence,0))
         except (ValueError,InvalidOperation) as error:raise ValueError('incomplete probe packet fields') from error
         if kind not in (0,8) or address not in counts:raise ValueError('unexpected probe packet')
+        submicrosecond+=instant%1000!=0
         target=requests if kind==8 else replies
         if key in target:raise ValueError('duplicate probe packet')
         if not begin<=instant<=end:raise ValueError('probe packet is outside the shared traffic interval')
@@ -41,7 +55,9 @@ def verify(events, packets, counts):
             raise ValueError('probe capture and sender counters differ')
     values=[(instant-requests[key])/1000000 for key,instant in replies.items()]
     if any(value<0 for value in values):raise ValueError('probe packet clocks are reversed')
+    if require_nanoseconds and not submicrosecond:raise ValueError('capture timestamps are quantized to microseconds')
     return {'begin_epoch_ns':begin,'end_epoch_ns':end,'sent':len(requests),'received':len(replies),'rtts_ms':values,
+            'submicrosecond_timestamps':submicrosecond,
             'boundary':'UE namespace: captured echo request to captured echo reply, fully inside all traffic timer intervals'}
 
 
