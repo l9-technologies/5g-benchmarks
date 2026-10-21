@@ -5,6 +5,7 @@ import random
 
 # Units and event boundaries are shared by every live adapter.
 OPTIONAL_METRICS = {
+    **{f"udp_{d}_pps": ("packets/s", "higher") for d in ("ul", "dl")},
     **{f"{part}_{name}": ("UEs" if name.endswith("ues") else "messages", "lower" if name in ("rejected_ues","pending_ues","request_messages") else "higher") for part in ("registration", "session") for name in ("attempted_ues", "successful_ues", "rejected_ues", "pending_ues", "request_messages")},
     **{f"{part}_success_percent": ("percent", "higher") for part in ("registration", "session")},
 }
@@ -47,6 +48,16 @@ def number(value, name, low, high):
         raise ValueError(f"{name} must be a finite number from {low} through {high}")
 
 
+def packet_sizes(protocol,count):
+    sizes=protocol.get('packet_bytes_by_stream')
+    if sizes is None:return [protocol.get('packet_bytes',1200)]*count
+    if not isinstance(sizes,list) or len(sizes)!=count or any(type(n) is not int or not 64<=n<=1400 for n in sizes):
+        raise ValueError('packet_bytes_by_stream must give one 64..1400 byte UDP payload for every stream')
+    modes=protocol.get('traffic_modes')
+    if not modes or set(modes)-{'udp_ul','udp_dl'}:raise ValueError('mixed packet sizes require explicit UDP modes')
+    return sizes
+
+
 def validate_plan(plan):
     if plan.get("mode")=="live" and plan.get("method_version")!=2:
         raise ValueError("new live runs require method 2; preserve historical reports with their saved tool")
@@ -76,6 +87,9 @@ def validate_plan(plan):
         raise ValueError("driver must be a command array")
     if not isinstance(plan.get("cwd"), str) or not plan["cwd"] or not plan.get("inputs"):
         raise ValueError("a working directory and pinned inputs are required")
+    for count in counts:packet_sizes(protocol,count)
+    if "readiness_timeout_seconds" in protocol:number(protocol["readiness_timeout_seconds"],"readiness timeout",1,10)
+    if "idle_seconds" in protocol:number(protocol["idle_seconds"],"idle seconds",1,300)
     candidates = plan["candidates"]
     if not 2 <= len(candidates) <= 20:
         raise ValueError("supply candidates and one repeated baseline (2 to 20 entries)")

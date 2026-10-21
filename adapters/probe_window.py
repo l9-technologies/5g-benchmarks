@@ -43,3 +43,20 @@ def verify(events, packets, counts):
     if any(value<0 for value in values):raise ValueError('probe packet clocks are reversed')
     return {'begin_epoch_ns':begin,'end_epoch_ns':end,'sent':len(requests),'received':len(replies),'rtts_ms':values,
             'boundary':'UE namespace: captured echo request to captured echo reply, fully inside all traffic timer intervals'}
+
+
+def generator_contract(binary,receipt_path):
+    """One binary and clock-patch contract for preparation and calibration."""
+    if receipt_path is None:return None
+    from pathlib import Path
+    from runner.evidence import read,digest
+    receipt=read(receipt_path);patch=Path(__file__).resolve().parents[1]/'patches/iperf-3.16-phase-clock.patch'
+    if receipt.get('instrumentation')!='traffic-phase-v1' or receipt.get('binary_sha256')!=digest(Path(binary)) or receipt.get('patch_sha256')!=digest(patch):
+        raise ValueError('traffic generator build receipt differs from its binary or clock patch')
+    if {c.get('mode') for c in receipt.get('checks',[]) if c.get('passed')}!={'tcp_ul','tcp_dl','udp_ul','udp_dl'}:raise ValueError('traffic generator checks are incomplete')
+    if 'pacing_patch_sha256' in receipt:
+        if receipt['pacing_patch_sha256']!=digest(patch.with_name('iperf-3.16-pacing.patch')):raise ValueError('traffic generator pacing patch differs')
+        checks=receipt['checks']
+        if len(checks)!=4 or any(type(c.get('combined_cpu_percent')) not in (int,float) or not 0<=c['combined_cpu_percent']<=25 for c in checks):
+            raise ValueError('traffic generator low-rate CPU checks failed')
+    return 'timer-and-ue-pcap-v1'

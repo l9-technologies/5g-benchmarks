@@ -57,13 +57,13 @@ class FreshCertificateState(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)/'core';(root/'source/config').mkdir(parents=True);(root/'source/cert').mkdir()
             original=root/'source/cert/nrf.pem';original.write_text('fixture certificate')
-            for nf in FREE_NFS:(root/'source/config'/f'{nf}cfg.yaml').write_text('oauth: true\npem: cert/nrf.pem\n')
+            for nf in FREE_NFS:(root/'source/config'/f'{nf}cfg.yaml').write_text('oauth: true\npem: cert/nrf.pem\nexpires: 2026-10-21T00:00:00Z\n')
             seen=[]
             for n in range(2):
                 output=Path(directory)/str(n);output.mkdir()
                 def start(name,args,role):
                     if name=='core-nrf':
-                        cfg=json.loads((output/'free5gc/nrfcfg.yaml').read_text());self.assertTrue(cfg['oauth'])
+                        cfg=json.loads((output/'free5gc/nrfcfg.yaml').read_text());self.assertTrue(cfg['oauth']);self.assertEqual(cfg['expires'],'2026-10-21T00:00:00Z')
                         path=Path(cfg['pem']);seen.append(path.read_text());path.write_text('changed fixture')
                 lab=SimpleNamespace(config={'free5gc':str(root)},output=output,core_ns='fixture',start=start,ns=lambda *args:'8000 38412',start_database=lambda:None,provision_database=lambda *args:None,wait=lambda *args:None)
                 free5gc.start(lab,1)

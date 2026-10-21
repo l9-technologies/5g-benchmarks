@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import resource
 import shutil
 import socket
 import subprocess
@@ -30,13 +31,15 @@ def build(output,source_archive,jobs):
     if digest(archive)!=SHA256:raise ValueError('traffic generator source archive hash changed')
     with tarfile.open(archive) as bundle:bundle.extractall(output,filter='data')
     source=output/'iperf-3.16';patch=ROOT/'patches/iperf-3.16-phase-clock.patch'
+    pacing=ROOT/'patches/iperf-3.16-pacing.patch'
     with (output/'build.log').open('wb') as log:
-        for argv in [['patch','-p1','-i',str(patch)],['./configure','--disable-shared','--prefix='+str(output/'install')],['make','-j'+str(jobs)],['make','install']]:
+        for argv in [['patch','-p1','-i',str(patch)],['patch','-p1','-i',str(pacing)],['autoreconf','-fi'],['./configure','--disable-shared','--prefix='+str(output/'install')],['make','-j'+str(jobs)],['make','install']]:
             subprocess.run(argv,cwd=source,stdout=log,stderr=subprocess.STDOUT,check=True,timeout=300)
     binary=output/'install/bin/iperf3';checks=[]
     for mode in ('tcp_ul','tcp_dl','udp_ul','udp_dl'):
         with socket.socket() as reservation:reservation.bind(('127.0.0.1',0));port=reservation.getsockname()[1]
         server_log=output/(mode+'-server.log');events=output/(mode+'-phase.jsonl')
+        before=resource.getrusage(resource.RUSAGE_CHILDREN);started=time.monotonic()
         with server_log.open('wb') as log:
             server=subprocess.Popen([str(binary),'-s','-B','127.0.0.1','-p',str(port),'--forceflush'],stdout=log,stderr=subprocess.STDOUT)
             try:
@@ -55,13 +58,21 @@ def build(output,source_archive,jobs):
                 if [r['event'] for r in rows]!=['warmup_end','test_end']:raise ValueError('generator timer event coverage failed')
                 if not 1<(rows[-1]['monotonic_before_ns']-rows[0]['monotonic_after_ns'])/1e9<4:raise ValueError('generator timer interval failed')
                 if data['end']['sum_received']['bytes']<=0:raise ValueError('generator self-check delivered no data')
-                checks.append({'mode':mode,'passed':True,'kind':'loopback functional check'})
             finally:
                 server.terminate()
                 try:server.wait(timeout=5)
                 except subprocess.TimeoutExpired:server.kill();server.wait()
+        after=resource.getrusage(resource.RUSAGE_CHILDREN);wall=time.monotonic()-started
+        cpu_seconds=after.ru_utime+after.ru_stime-before.ru_utime-before.ru_stime
+        cpu_percent=100*cpu_seconds/wall
+        check={'mode':mode,'passed':cpu_percent<=25,'kind':'1-Mbit/s loopback functional and CPU check',
+               'combined_cpu_seconds':cpu_seconds,'wall_seconds':wall,'combined_cpu_percent':cpu_percent,'cpu_limit_percent':25}
+        checks.append(check)
+        (output/(mode+'-cpu.json')).write_text(json.dumps(check,indent=2)+'\n')
+        if not check['passed']:raise ValueError('generator low-rate CPU check exceeded 25% of one CPU: '+mode)
     receipt={'schema_version':1,'instrumentation':'traffic-phase-v1','binary':str(binary),'binary_sha256':digest(binary),
-             'source_url':URL,'source_archive_sha256':SHA256,'patch_sha256':digest(patch),'checks':checks,
+             'source_url':URL,'source_archive_sha256':SHA256,'patch_sha256':digest(patch),'pacing_patch_sha256':digest(pacing),
+             'pacing_upstream_commit':'783095e138b7257dfcbf4e9aa2a48685d14c7f16','checks':checks,
              'platform':platform.platform(),'version':subprocess.check_output([str(binary),'--version'],text=True)}
     (output/'build-receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
     return receipt

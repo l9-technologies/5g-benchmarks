@@ -48,7 +48,9 @@ Build the instrumented iperf generator once, before collection:
 python3 scripts/build-iperf.py --output /opt/benchmark/iperf
 ```
 
-The command downloads iperf 3.16 from its upstream release archive, checks SHA256, applies the public clock patch, builds it, and tests TCP/UDP in both directions on loopback. It saves a build receipt and the four raw checks. These are functional checks, not 5G measurements. A source archive can be supplied with `--source-archive`; it must have the same pinned hash. The build command needs Python 3.12 or later and normal C build tools.
+The command downloads iperf 3.16 from its upstream release archive, checks SHA256, applies the public clock patch and the upstream CPU pacing fix, builds it, and tests TCP/UDP in both directions on loopback. It saves a build receipt and the four raw checks. These are functional checks, not 5G measurements. A source archive can be supplied with `--source-archive`; it must have the same pinned hash. The build command needs Linux, Python 3.12 or later, Autoconf, Automake, Libtool, and normal C build tools. Each 1-Mbit/s check must use at most 25% of one CPU for the client and server together. Raw CPU counters and elapsed time remain in the build output. This check detects a busy loop; trial headroom limits still apply.
+
+The pacing patch is upstream commit [783095e](https://github.com/esnet/iperf/commit/783095e138b7257dfcbf4e9aa2a48685d14c7f16), which fixes CPU use when the bitrate is limited. The receipt binds both patches and the resulting binary. New builds and campaigns use new output directories. Keep earlier binaries, receipts, and failed trials.
 
 Set `iperf_bin` to the installed binary and `iperf_build_receipt` to its receipt in the lab inventory. Preparation checks the binary and patch hashes. Studies that select loaded RTT measurements require this contract before traffic starts.
 

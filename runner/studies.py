@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from .contracts import METRICS, FEATURES, USER_PLANES, balanced_repetitions, number, schedule, validate_plan
+from .contracts import METRICS, FEATURES, USER_PLANES, balanced_repetitions, number, packet_sizes, schedule, validate_plan
 from .evidence import check_inputs, digest, object_hash, read, verified_trials, write
 from .execution import run
 from .reporting import make_report
@@ -18,7 +18,7 @@ from .snapshot import save_report_tool
 
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL_KEYS = {'duration_seconds', 'warmup_seconds', 'packet_bytes', 'offered_mbps_per_ue',
-                 'user_plane','traffic_modes', 'probe_interval_seconds', 'resource_sample_seconds','load_tolerance_percent'}
+                 'user_plane','traffic_modes','readiness_timeout_seconds','idle_seconds','packet_bytes_by_stream', 'probe_interval_seconds', 'resource_sample_seconds','load_tolerance_percent'}
 
 def keys(value, allowed, name):
     if not isinstance(value, dict):
@@ -63,6 +63,9 @@ def validate_profile(profile):
         if not isinstance(metrics,list) or not metrics or len(set(metrics))!=len(metrics) or set(metrics)-METRICS.keys():
             raise ValueError('case metrics must be distinct known metric names')
         protocol={**profile.get('defaults',{}),**{k:v for k,v in case.items() if k in PROTOCOL_KEYS}}
+        for count in counts:packet_sizes(protocol,count)
+        if 'readiness_timeout_seconds' in protocol:number(protocol['readiness_timeout_seconds'],'readiness timeout',1,10)
+        if 'idle_seconds' in protocol:number(protocol['idle_seconds'],'idle seconds',1,300)
         if 'traffic_modes' in protocol and (not isinstance(protocol['traffic_modes'],list) or
                 len(set(protocol['traffic_modes']))!=len(protocol['traffic_modes']) or set(protocol['traffic_modes'])-{'tcp_ul','tcp_dl','udp_ul','udp_dl'}):
             raise ValueError('unknown or duplicate traffic mode')
@@ -118,6 +121,7 @@ def compile_plans(profile,base):
             raise ValueError('loaded RTT metrics need the instrumented traffic generator and UE packet capture contract')
         protocol={**base['protocol'],**profile.get('defaults',{}),**{k:v for k,v in case.items() if k in PROTOCOL_KEYS},'ue_counts':case['ue_counts']}
         if base['mode']=='live' and protocol.get('user_plane')=='linux-gtp' and not base['protocol'].get('kernel_gtp_available'):raise ValueError('the prepared lab has no pinned Linux GTP generator')
+        if 'readiness_timeout_seconds' in protocol:protocol['startup_boundary']='core launch through the last first N6 reply within the declared readiness window; wall-to-monotonic clock alignment at most 1 ms'
         for cohort in ['main']+(['confirmation'] if case['id'] in profile.get('confirmation',[]) else []):
             plan={**base,'candidates':candidates,'protocol':protocol,'metrics':case['metrics'],
                   'seed':profile['seed'],'repetitions':repetitions,'equivalence_percent':profile['equivalence_percent'],

@@ -10,7 +10,7 @@ from .contracts import schedule,validate_plan
 from .evidence import check_inputs,read
 from .execution import merge,run
 from .reporting import make_report
-from . import studies, archives, workflow, lab
+from . import studies, archives, workflow, lab, calibration
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -44,8 +44,14 @@ def main():
     lab_commands=sub.add_parser('lab').add_subparsers(dest='lab_action',required=True)
     p=lab_commands.add_parser('doctor');p.add_argument('profile',type=Path)
     p.add_argument('--lab',required=True,type=Path);p.add_argument('--output',required=True,type=Path)
+    p=lab_commands.add_parser('calibrate');p.add_argument('profile',type=Path);p.add_argument('--output',required=True,type=Path)
+    p=lab_commands.add_parser('calibration-report');p.add_argument('directory',type=Path);p.add_argument('--output',required=True,type=Path)
     args = parser.parse_args()
     try:
+        if args.action=='lab' and args.lab_action=='calibration-report':
+            print(json.dumps(calibration.report(args.directory.resolve(),args.output.resolve())));return 0
+        if args.action=='lab' and args.lab_action=='calibrate':
+            result=calibration.run(args.profile.resolve(),args.output.resolve());print(json.dumps(result));return 0 if result['cleanup_ok'] else 2
         if args.action=='lab':
             print(json.dumps(lab.doctor(args.profile.resolve(),args.lab.resolve(),args.output.resolve())));return 0
         if args.action == "study":

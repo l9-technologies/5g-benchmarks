@@ -29,4 +29,22 @@ class ProbeWindow(unittest.TestCase):
         with self.assertRaises(ValueError):verify(events,packets,counts)
         events,packets,counts=self.inputs()
         with self.assertRaises(ValueError):verify(events,packets+packets.splitlines()[1]+'\n',counts)
+
+class GeneratorReceipt(unittest.TestCase):
+    def test_pacing_patch_and_low_rate_cpu_checks_are_bound_to_binary(self):
+        import tempfile,pathlib,json,hashlib
+        from adapters.probe_window import generator_contract
+        root=pathlib.Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as t:
+            p=pathlib.Path(t);binary=p/'iperf3';binary.write_bytes(b'fixture')
+            digest=lambda f:hashlib.sha256(f.read_bytes()).hexdigest()
+            receipt={'instrumentation':'traffic-phase-v1','binary_sha256':digest(binary),'patch_sha256':digest(root/'patches/iperf-3.16-phase-clock.patch'),'pacing_patch_sha256':'incorrect','checks':[{'mode':m,'passed':True,'combined_cpu_percent':2} for m in ('tcp_ul','tcp_dl','udp_ul','udp_dl')]}
+            path=p/'receipt.json';path.write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(ValueError,'pacing'):generator_contract(binary,path)
+            receipt['pacing_patch_sha256']=digest(root/'patches/iperf-3.16-pacing.patch')
+            path.write_text(json.dumps(receipt));self.assertEqual(generator_contract(binary,path),'timer-and-ue-pcap-v1')
+            for bad in (None,101):
+                receipt['checks'][0]['combined_cpu_percent']=bad;path.write_text(json.dumps(receipt))
+                with self.assertRaisesRegex(ValueError,'CPU'):generator_contract(binary,path)
+
 if __name__=='__main__':unittest.main()
