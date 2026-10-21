@@ -33,7 +33,7 @@ def identifier(value, name):
 
 def validate_profile(profile):
     keys(profile, {'schema_version','name','cores','repetitions','seed','equivalence_percent',
-                   'timeout_seconds','defaults','cases','confirmation','required_features'}, 'profile')
+                   'timeout_seconds','defaults','cases','confirmation','required_features','verification'}, 'profile')
     if profile.get('schema_version') != 1:
         raise ValueError('unknown study profile version')
     identifier(profile.get('name'), 'profile name')
@@ -46,6 +46,12 @@ def validate_profile(profile):
         if not isinstance(profile['cores'], list) or not profile['cores'] or len(set(profile['cores'])) != len(profile['cores']):
             raise ValueError('cores must be a nonempty list of distinct adapter names')
         for core in profile['cores']:identifier(core,'core')
+    verification=profile.get('verification',{})
+    keys(verification,{'offered_mbps_per_ue','duration_seconds','warmup_seconds'},'verification')
+    for field,low,high in [('offered_mbps_per_ue',.01,10000),('duration_seconds',2,300),('warmup_seconds',1,30)]:
+        if field in verification:number(verification[field],'verification '+field,low,high)
+    for field in ('duration_seconds','warmup_seconds'):
+        if field in verification and type(verification[field]) is not int:raise ValueError('verification '+field+' must be an integer')
     keys(profile.get('defaults', {}), PROTOCOL_KEYS, 'defaults')
     cases=profile.get('cases')
     if not isinstance(cases,list) or not cases:
@@ -166,7 +172,8 @@ def prepare(profile_path,lab_path,output):
 def check_profile(profile):
     # A health check uses the same adapters and feature requirements. It has
     # fresh disposable state and one short observation per candidate and repeat.
-    cases=[{**case,'ue_counts':[max(case['ue_counts'])],'duration_seconds':5,'warmup_seconds':1} for case in profile['cases']]
+    settings={'duration_seconds':5,'warmup_seconds':1,**profile.get('verification',{})}
+    cases=[{**case,**settings,'ue_counts':[max(case['ue_counts'])]} for case in profile['cases']]
     return {**profile,'name':'check-'+profile['name'][:70],'cases':cases,'confirmation':[]}
 
 def prepare_check(profile_path,lab_path,output):

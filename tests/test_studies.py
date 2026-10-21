@@ -178,4 +178,25 @@ m={'kind':'fixture','cleanup_ok':True,'quality_errors':[],'features':{'registrat
    record=json.loads(rows[0].read_text());self.assertEqual(record['status'],'failed');self.assertEqual(record['driver_return_code'],130);before=rows[0].read_bytes()
    q=self.command('study','resume',out,'--max-trials','1');self.assertEqual(q.returncode,2,q.stderr);self.assertEqual(rows[0].read_bytes(),before)
    s=json.loads(q.stdout);self.assertEqual(s['collection']['collected'],2);self.assertEqual(s['collection']['failed'],1)
+
+class LoadAdmission(unittest.TestCase):
+ command=StudyCommands.command
+ inputs=StudyCommands.inputs
+ def test_explicit_functional_load_does_not_remove_stress_failures(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=pathlib.Path(temp);profile,lab,driver=self.inputs(root)
+   driver.write_text(driver.read_text().replace("(p/'measurement.json').write_text", "plan=json.loads(pathlib.Path(os.environ['BENCH_PLAN']).read_text());m['quality_errors']=['fixture overload'] if plan['protocol']['offered_mbps_per_ue']>1 else []\n(p/'measurement.json').write_text"))
+   base=root/'base.json';b=json.loads(base.read_text());b['inputs'][str(driver)]=hashlib.sha256(driver.read_bytes()).hexdigest();base.write_text(json.dumps(b))
+   p=json.loads(profile.read_text());p['cases']=p['cases'][:1];p['cases'][0]['offered_mbps_per_ue']=1000;p['confirmation']=['connect-1'];p['verification']={'offered_mbps_per_ue':1,'duration_seconds':5,'warmup_seconds':1};profile.write_text(json.dumps(p))
+   out=root/'study';q=self.command('study','collect',profile,'--lab',lab,'--output',out)
+   self.assertEqual(q.returncode,2,q.stderr);self.assertTrue(q.stdout,q.stderr);result=json.loads(q.stdout)
+   self.assertEqual(result['phase'],'complete_with_failures');self.assertTrue(result['checks']['check_passed']);self.assertEqual(result['collection']['collected'],64);self.assertEqual(result['collection']['failed'],64)
+   check=json.loads((out/'checks/cases/connect-1/main/plan.json').read_text());main=json.loads((out/'collection/cases/connect-1/main/plan.json').read_text());self.assertEqual(check['protocol']['offered_mbps_per_ue'],1);self.assertEqual(main['protocol']['offered_mbps_per_ue'],1000);self.assertEqual(check['required_features'],main['required_features'])
+   outcomes=list(csv.DictReader((pathlib.Path(result['report'])/'trial-outcomes.csv').read_text().splitlines()));self.assertEqual(len(outcomes),64);self.assertTrue(all(r['status']=='failed' for r in outcomes))
+   archive=pathlib.Path(result['archive']['archive']);self.assertEqual(self.command('study','verify-archive',archive).returncode,0);before=archive.read_bytes();again=self.command('study','resume',out);self.assertEqual(again.returncode,2);self.assertEqual(archive.read_bytes(),before)
+ def test_verification_cannot_change_features_or_quality_limits(self):
+  for settings in ({'required_features':[]},{'load_tolerance_percent':10},{'offered_mbps_per_ue':0},{'duration_seconds':1},{'warmup_seconds':0}):
+   with self.subTest(settings=settings),tempfile.TemporaryDirectory() as temp:
+    root=pathlib.Path(temp);profile,lab,_=self.inputs(root);p=json.loads(profile.read_text());p['verification']=settings;profile.write_text(json.dumps(p));q=self.command('study','prepare',profile,'--lab',lab,'--output',root/'out');self.assertEqual(q.returncode,2);self.assertFalse((root/'out').exists())
+
 if __name__=='__main__':unittest.main()

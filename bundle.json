@@ -31,7 +31,7 @@
     "docs/getting-started.md": "820ad1e27ae275c107d8ebdd2c4fa314b58cf0b29926238ad39366916113419d",
     "docs/host-control.md": "fddd4d73969647e5170fb566ca7d2e38177b5ade939517f2d6c5a9741ae23f42",
     "docs/methodology.md": "ac2a562d1695fa50992cc5054a9a38c802d2fb5bbc12617277f1ba2c8da507f3",
-    "docs/studies.md": "6e0d9fc688cc7c81a1bccc12bfe0d61b5b1828810fa4e34a60b2ebd6ddd0eb59",
+    "docs/studies.md": "9471a75aede7e5ebb8f94f6dee248d4187d246ca83cfde8d5a18c266238f0462",
     "docs/third-party.md": "38f4016ef5a392b89542c7389b0ed25e004ff3ad44ad807d2697a4bea12b4234",
     "experiments.py": "4314544ea1b5303c42fb7b3513d6a6751fa92fd6d9e68a606cabbab5b6ed96ee",
     "native_lab.py": "e6cb123d107324b27f65fe9c7ca863a9a445336a05fc802afdb13a1907c393c0",
@@ -61,7 +61,7 @@
     "runner/reporting.py": "66719a00d7247e6317b95276c538693a274fae21ec203ce087835498aefa0563",
     "runner/snapshot.py": "a9af041b3256fd9ec3f1fef5527baeb35653ef0eee1f07868fb9748e6617871e",
     "runner/statistics.py": "bea1edfaec5b1ca83fc366ebbde8595604730f5f3225f15115f13efc32a172d0",
-    "runner/studies.py": "99c660e471130c0ea54feb3ed93046c6b2a104bb6952219a3e7500114424257d",
+    "runner/studies.py": "f84ee243f47977507ca859a4bf249a51324d4d21a1acb1afc560bb9beced758d",
     "runner/workflow.py": "76a3cce1d779b658e01b5d0c490d342d0c46cf4bdccba751782dea0b8ee61cac",
     "scripts/build-iperf.py": "f4b43812c7e14453b148cd72932b0b0cd939d6d8c652a6e06d22468a3b078a7c",
     "scripts/check-agent-instructions.mjs": "382557d992362981592bf46c32501f7ed0b690af9f67bedce3c04dccfbf7c497",
@@ -78,7 +78,7 @@
     "tests/test_neutrality.py": "80185958807bed2cb5d88fee795673f659f5b3161a8c62a35805f6535ac14ce4",
     "tests/test_probe_window.py": "feaa8b1e07714e29727c07f437dbf813f39a425970ca07191172cb400482dfdf",
     "tests/test_session_ambr.py": "6d157f972c062ca4d2a3c47e900cea9c4011bda0bfc807d0a645f0c1cc68dc1d",
-    "tests/test_studies.py": "02b601ac19e280fda2722d7a47f4d64a4e4beb94cc24b2d62e02b7266a033840"
+    "tests/test_studies.py": "b0b56c5b26325a945f533b4ec54c05affff7bd206cdfa50a902b467598c53d48"
   },
   "schema_version": 1
 }
