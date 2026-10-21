@@ -34,6 +34,7 @@ ALLOWED = {
     'adapters/probe_window.py',
     'patches/iperf-3.16-phase-clock.patch',
     'patches/iperf-3.16-pacing.patch',
+    'patches/iperf-3.16-udp-listener.patch',
     'scripts/build-iperf.py',
     'scripts/verify-live-study.py',
     'tests/test_probe_window.py',

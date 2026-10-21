@@ -32,8 +32,9 @@ def build(output,source_archive,jobs):
     with tarfile.open(archive) as bundle:bundle.extractall(output,filter='data')
     source=output/'iperf-3.16';patch=ROOT/'patches/iperf-3.16-phase-clock.patch'
     pacing=ROOT/'patches/iperf-3.16-pacing.patch'
+    listener=ROOT/'patches/iperf-3.16-udp-listener.patch'
     with (output/'build.log').open('wb') as log:
-        for argv in [['patch','-p1','-i',str(patch)],['patch','-p1','-i',str(pacing)],['autoreconf','-fi'],['./configure','--disable-shared','--prefix='+str(output/'install')],['make','-j'+str(jobs)],['make','install']]:
+        for argv in [['patch','-p1','-i',str(patch)],['patch','-p1','-i',str(pacing)],['patch','-p1','-i',str(listener)],['autoreconf','-fi'],['./configure','--disable-shared','--prefix='+str(output/'install')],['make','-j'+str(jobs)],['make','install']]:
             subprocess.run(argv,cwd=source,stdout=log,stderr=subprocess.STDOUT,check=True,timeout=300)
     binary=output/'install/bin/iperf3';checks=[]
     for mode in ('tcp_ul','tcp_dl','udp_ul','udp_dl'):
@@ -72,7 +73,8 @@ def build(output,source_archive,jobs):
         if not check['passed']:raise ValueError('generator low-rate CPU check exceeded 25% of one CPU: '+mode)
     receipt={'schema_version':1,'instrumentation':'traffic-phase-v1','binary':str(binary),'binary_sha256':digest(binary),
              'source_url':URL,'source_archive_sha256':SHA256,'patch_sha256':digest(patch),'pacing_patch_sha256':digest(pacing),
-             'pacing_upstream_commit':'783095e138b7257dfcbf4e9aa2a48685d14c7f16','checks':checks,
+             'pacing_upstream_commit':'783095e138b7257dfcbf4e9aa2a48685d14c7f16',
+             'udp_listener_patch_sha256':digest(listener),'udp_listener_upstream_commit':'ac6b9f7fd335ddebc5212eed40083ef4cd3cb86d','checks':checks,
              'platform':platform.platform(),'version':subprocess.check_output([str(binary),'--version'],text=True)}
     (output/'build-receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
     return receipt
