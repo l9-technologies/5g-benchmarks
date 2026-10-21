@@ -59,4 +59,6 @@ def generator_contract(binary,receipt_path):
         checks=receipt['checks']
         if len(checks)!=4 or any(type(c.get('combined_cpu_percent')) not in (int,float) or not 0<=c['combined_cpu_percent']<=25 for c in checks):
             raise ValueError('traffic generator low-rate CPU checks failed')
+    if 'udp_listener_patch_sha256' in receipt and receipt['udp_listener_patch_sha256']!=digest(patch.with_name('iperf-3.16-udp-listener.patch')):
+        raise ValueError('traffic generator UDP listener patch differs')
     return 'timer-and-ue-pcap-v1'

@@ -43,6 +43,10 @@ class GeneratorReceipt(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'pacing'):generator_contract(binary,path)
             receipt['pacing_patch_sha256']=digest(root/'patches/iperf-3.16-pacing.patch')
             path.write_text(json.dumps(receipt));self.assertEqual(generator_contract(binary,path),'timer-and-ue-pcap-v1')
+            receipt['udp_listener_patch_sha256']='incorrect';path.write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(ValueError,'listener'):generator_contract(binary,path)
+            receipt['udp_listener_patch_sha256']=digest(root/'patches/iperf-3.16-udp-listener.patch');path.write_text(json.dumps(receipt))
+            self.assertEqual(generator_contract(binary,path),'timer-and-ue-pcap-v1')
             for bad in (None,101):
                 receipt['checks'][0]['combined_cpu_percent']=bad;path.write_text(json.dumps(receipt))
                 with self.assertRaisesRegex(ValueError,'CPU'):generator_contract(binary,path)

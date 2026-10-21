@@ -212,7 +212,7 @@ def prepare(args):
         if len(set(assigned))!=len(assigned) or not set(assigned)<=os.sched_getaffinity(0):raise ValueError('CPU roles must be disjoint and available')
     paths=[iperf]
     executables=[iperf]
-    if args.iperf_build_receipt:paths += [args.iperf_build_receipt.resolve(),ROOT/'patches/iperf-3.16-phase-clock.patch',ROOT/'patches/iperf-3.16-pacing.patch',ROOT/'scripts/build-iperf.py']
+    if args.iperf_build_receipt:paths += [args.iperf_build_receipt.resolve(),ROOT/'patches/iperf-3.16-phase-clock.patch',ROOT/'patches/iperf-3.16-pacing.patch',ROOT/'patches/iperf-3.16-udp-listener.patch',ROOT/'scripts/build-iperf.py']
     if args.runtime_environment:paths.append(args.runtime_environment.resolve())
     if args.user_plane=='linux-gtp':
         paths += [kernel]+sorted(Path(pyroute2.__file__).resolve().parent.rglob('*.py'))+sorted(Path(pyroute2.__file__).resolve().parent.rglob('*.so'))
