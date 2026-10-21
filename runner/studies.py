@@ -18,7 +18,7 @@ from .snapshot import save_report_tool
 
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL_KEYS = {'duration_seconds', 'warmup_seconds', 'packet_bytes', 'offered_mbps_per_ue',
-                 'user_plane','traffic_modes','readiness_timeout_seconds','idle_seconds','packet_bytes_by_stream', 'probe_interval_seconds', 'resource_sample_seconds','load_tolerance_percent'}
+                 'user_plane','probe_timestamp_precision','traffic_modes','readiness_timeout_seconds','idle_seconds','packet_bytes_by_stream', 'probe_interval_seconds', 'resource_sample_seconds','load_tolerance_percent'}
 
 def keys(value, allowed, name):
     if not isinstance(value, dict):
@@ -70,6 +70,7 @@ def validate_profile(profile):
             raise ValueError('case metrics must be distinct known metric names')
         protocol={**profile.get('defaults',{}),**{k:v for k,v in case.items() if k in PROTOCOL_KEYS}}
         for count in counts:packet_sizes(protocol,count)
+        if protocol.get('probe_timestamp_precision','micro') not in ('micro','nano'):raise ValueError('probe timestamp precision must be micro or nano')
         if 'readiness_timeout_seconds' in protocol:number(protocol['readiness_timeout_seconds'],'readiness timeout',1,10)
         if 'idle_seconds' in protocol:number(protocol['idle_seconds'],'idle seconds',1,300)
         if 'traffic_modes' in protocol and (not isinstance(protocol['traffic_modes'],list) or

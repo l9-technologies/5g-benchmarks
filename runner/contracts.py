@@ -88,6 +88,7 @@ def validate_plan(plan):
     if not isinstance(plan.get("cwd"), str) or not plan["cwd"] or not plan.get("inputs"):
         raise ValueError("a working directory and pinned inputs are required")
     for count in counts:packet_sizes(protocol,count)
+    if protocol.get('probe_timestamp_precision','micro') not in ('micro','nano'):raise ValueError('probe timestamp precision must be micro or nano')
     if "readiness_timeout_seconds" in protocol:number(protocol["readiness_timeout_seconds"],"readiness timeout",1,10)
     if "idle_seconds" in protocol:number(protocol["idle_seconds"],"idle seconds",1,300)
     candidates = plan["candidates"]

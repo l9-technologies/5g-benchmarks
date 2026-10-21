@@ -51,4 +51,32 @@ class GeneratorReceipt(unittest.TestCase):
                 receipt['checks'][0]['combined_cpu_percent']=bad;path.write_text(json.dumps(receipt))
                 with self.assertRaisesRegex(ValueError,'CPU'):generator_contract(binary,path)
 
+
+class CapturePrecision(unittest.TestCase):
+    """Before implementation: reject wrong precision, unknown or short headers;
+    keep submicrosecond RTTs and reject a nanosecond file with coarse samples.
+    """
+    def test_capture_header_precision_is_verified(self):
+        import pathlib,tempfile,struct
+        from adapters.probe_window import capture_precision
+        with tempfile.TemporaryDirectory() as t:
+            p=pathlib.Path(t)/'capture.pcap'
+            for order,magic in [('<','4d3cb2a1'),('>','a1b23c4d')]:
+                p.write_bytes(bytes.fromhex(magic)+struct.pack(order+'HHIIII',2,4,0,0,128,276))
+                self.assertEqual(capture_precision(p,'nano'),'nano')
+            p.write_bytes(bytes.fromhex('d4c3b2a1')+struct.pack('<HHIIII',2,4,0,0,128,276))
+            self.assertEqual(capture_precision(p,'micro'),'micro')
+            with self.assertRaises(ValueError):capture_precision(p,'nano')
+            for bad in (b'',b'pcap',bytes.fromhex('4d3cb2a1')):
+                p.write_bytes(bad)
+                with self.assertRaises(ValueError):capture_precision(p,'nano')
+    def test_nanosecond_rtts_keep_submicrosecond_values(self):
+        events,packets,counts=ProbeWindow().inputs()
+        packets=packets.replace('102\t','102.000000123\t').replace('102.001\t','102.000000623\t')
+        result=verify(events,packets,counts,require_nanoseconds=True)
+        self.assertAlmostEqual(result['rtts_ms'][0],.0005)
+        self.assertGreater(result['submicrosecond_timestamps'],0)
+        events,packets,counts=ProbeWindow().inputs()
+        with self.assertRaisesRegex(ValueError,'quantized'):verify(events,packets,counts,require_nanoseconds=True)
+
 if __name__=='__main__':unittest.main()
