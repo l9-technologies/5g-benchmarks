@@ -81,6 +81,7 @@ def export(output):
     'profiles/generator-calibration.json',
     'tests/test_host_control.py',
     'tests/test_trial_batches.py',
+    'tests/test_pilot_selection.py',
         'runner/contracts.py',
         'runner/evidence.py',
         'runner/execution.py',

@@ -143,6 +143,15 @@ def schedule(plan):
     return rows
 
 
+def pilot_schedule(plan):
+    """Select one full repetition at every declared device count."""
+    rows = [row for row in schedule(plan) if row['repetition'] == 1]
+    expected = {(count, c['id']) for count in plan['protocol']['ue_counts'] for c in plan['candidates']}
+    if {(r['ue_count'], r['candidate']) for r in rows} != expected or len(rows) != len(expected):
+        raise ValueError('pilot must cover every device count and candidate exactly once')
+    return rows
+
+
 def validate_measurement(m):
     if not isinstance(m, dict):
         raise ValueError("measurement must be an object")

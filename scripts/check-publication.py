@@ -23,6 +23,7 @@ ALLOWED = {
     'profiles/generator-calibration.json',
     'tests/test_host_control.py',
     'tests/test_trial_batches.py',
+    'tests/test_pilot_selection.py',
     'requirements-lab.txt',
     '.github/workflows/ci-host-check.yml',
     '.github/workflows/verification.yml',

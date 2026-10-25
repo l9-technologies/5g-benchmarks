@@ -101,6 +101,12 @@ Nanoseconds are counter units, not a claim of measurement accuracy. Run
 
 ## Small retained batches
 
+Use `python3 benchmark.py run plan.json --output pilot-01 --pilot` to select
+one full repetition at every declared device count. With five cores, a repeat
+for each core, and three device counts, this selects 30 trials. A pilot is a
+coverage and measurement check; it cannot clear comparison claims. Do not
+select the first 30 trials from a full schedule: those can all use one device.
+
 Choose the trial IDs from the frozen plan schedule before collection. Run them
 in schedule order. Keep each batch in its own output directory:
 
@@ -119,3 +125,21 @@ The host controller must retain each failed host window and its replacement
 in the attempt ledger. Retry only that window with the same selected IDs.
 A core failure in a clean host window remains a failed result; do not retry it
 to obtain a passing comparison. Keep the host and statistical limits fixed.
+
+## Mini host admission
+
+Use one shared host reservation for CI, builds, package installs, and timed
+measurements. A lock protects only commands that use it. Do not treat it as
+an operating-system CPU partition. Check active local install and build
+commands before acquisition, then check host activity throughout measurement.
+
+For the Mini repair controller, use one trial per reservation and require
+18 consecutive five-second quiet samples before that trial. Keep the existing
+host CPU, swap, memory, and guest quality limits. A host rejection retains the
+attempt and permits at most three attempts of that trial. A core failure in a
+clean reservation stays failed. Admission waits do not count as trial attempts.
+Restore CI on every exit and at the existing bounded window deadline.
+
+Run the pilot through the same archive, raw-data review, and report path as
+collection. Prove the full candidate/device-count matrix before admitting
+main collection. A command check with fixture data is not live host admission.
