@@ -24,6 +24,7 @@ def main():
             p.add_argument("--shard-count", type=int, default=1)
             p.add_argument("--resume", action="store_true")
             p.add_argument("--max-trials", type=int)
+            p.add_argument("--trial-ids", nargs="+")
     sub.add_parser("report").add_argument("directory", type=Path)
     p = sub.add_parser("merge")
     p.add_argument("directories", nargs="+", type=Path)
@@ -88,7 +89,7 @@ def main():
             print(json.dumps({"status": "ready", "trials": len(schedule(plan))}))
             return 0
         if args.action == "run":
-            report = run(args.plan.resolve(), args.output.resolve(), args.shard_index, args.shard_count, resume=args.resume, max_trials=args.max_trials)
+            report = run(args.plan.resolve(), args.output.resolve(), args.shard_index, args.shard_count, resume=args.resume, max_trials=args.max_trials, trial_ids=args.trial_ids)
         elif args.action == "merge":
             report = merge([d.resolve() for d in args.directories], args.output.resolve())
         else:

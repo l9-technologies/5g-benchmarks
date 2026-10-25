@@ -8,10 +8,13 @@ from pathlib import Path
 import re
 import signal
 import shutil
+import sys
 import time
 
 from benchmark import check_inputs, digest, host_identity, read, stop_group, write
-from native_lab import Lab, UE_ROUTE_TABLE_BASE, command, ping_metrics, procedure_metrics
+from native_lab import Lab, UE_ROUTE_TABLE_BASE, command, ping_metrics, procedure_metrics,generator_headroom
+from adapters.service_probe import recovery_result
+from adapters.ueransim import profile_proof
 
 
 def start_core(lab, core, count):
@@ -26,11 +29,121 @@ def ping(lab, ip, name, count=10, interval=.1):
         raise ValueError(f"{name}: not all external probes returned")
     return result
 
+def fault_process(lab, nf):
+    core = lab.config['candidate']
+    label = 'core-'+core if core in ('ella','qcore') else 'core-'+nf
+    matches = [p for p,role,name in lab.processes if role == 'core' and name == label]
+    if len(matches) != 1 or matches[0].poll() is not None:
+        raise ValueError('Cannot select one live process for the declared fault: '+label)
+    return label, matches[0]
+
+def service_recovery(lab, interfaces, nf, seconds, inject=True):
+    """Use the same verified TCP/UDP service for a fault and its no-fault control."""
+    label, original = fault_process(lab,nf)
+    radio = {name:p.pid for p,role,name in lab.processes if role in ('ue','gnb')}
+    other_core = [(name,p) for p,role,name in lab.processes if role == 'core' and p is not original]
+    database_pid = command(['podman','inspect','--format','{{.State.Pid}}',lab.mongo]).strip() if lab.mongo else None
+    tool = Path(__file__).parent/'adapters/service_probe.py'
+    clients = []
+    for transport,port in [('tcp',6500),('udp',6501)]:
+        lab.start('service-'+transport,[sys.executable,tool,'server','--transport',transport,
+                  '--address','192.0.2.1','--port',str(port),'--output',lab.output/('service-receiver-'+transport+'.jsonl')],namespace=lab.dn_ns,role='traffic')
+        lab.wait(lambda: str(port) in lab.ns(lab.dn_ns,['ss','-lntH' if transport == 'tcp' else '-lnuH']))
+        for n,(_,ip) in enumerate(interfaces):
+            path = lab.output/('service-'+transport+'-'+str(n)+'.jsonl')
+            process = lab.start('probe-'+transport+'-'+str(n),[sys.executable,tool,'client',
+                       '--transport',transport,'--address','192.0.2.1','--port',str(port),
+                       '--bind',ip,'--seconds',str(seconds+15),'--interval','.02','--output',path],
+                       namespace=lab.ue_ns,role='traffic')
+            clients.append((transport,n,path,process))
+    baseline_deadline = time.monotonic()+10
+    while True:
+        ready = True
+        for _,_,path,process in clients:
+            if process.poll() is not None:
+                raise ValueError('Service probe stopped before the fault')
+            rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+            ready &= len(rows)>=10 and all(row['passed'] for row in rows[-10:])
+        if ready:
+            break
+        if time.monotonic() > baseline_deadline:
+            raise TimeoutError('Not every TCP/UDP stream passed baseline delivery')
+        time.sleep(.1)
+    lab.start_monitor(roles=('ue','gnb','traffic'))
+    event = {'nf':nf,'process_name':label,'fault_injected':inject,
+             'signal':'SIGKILL' if inject else None,
+             'old_pid':original.pid,'radio_pids':radio,'radio_restart':False,
+             'process_scope':'whole monolithic core' if lab.config['candidate'] in ('ella','qcore') else 'named network function',
+             'observation_seconds':seconds,'probe_payload_bytes':1200,'probe_interval_seconds':.02,
+             'transport_streams':len(clients),'passed':False}
+    write(lab.output/'service-recovery-fault.json',event)
+    restarted = original
+    fault_ns = time.monotonic_ns()
+    request_floor_ns = fault_ns
+    if inject:
+        os.killpg(original.pid,signal.SIGKILL)
+        event['signal_return_monotonic_ns']=time.monotonic_ns()
+        original.wait(timeout=5)
+        request_floor_ns=time.monotonic_ns()
+        event['process_dead_monotonic_ns']=request_floor_ns
+        restarted = lab.restart(label)
+    event['fault_monotonic_ns']=fault_ns
+    event['post_failure_request_floor_ns']=request_floor_ns
+    event['new_pid'] = restarted.pid
+    write(lab.output/'service-recovery-fault.json',event)
+    # Keep the same observation duration for controls and early recoveries.
+    end = fault_ns/1e9+seconds
+    while time.monotonic() < end:
+        if any(p.poll() is not None for p,role,_ in lab.processes if role in ('ue','gnb')):
+            event['radio_exited'] = True
+            break
+        if any(p.poll() is not None for _,_,_,p in clients):
+            event['probe_exited'] = True
+            break
+        time.sleep(.2)
+    lab.monitor_stop.set();lab.monitor_thread.join(timeout=5)
+    if lab.monitor_thread.is_alive():raise RuntimeError('Recovery generator monitor did not stop')
+    write(lab.output/'recovery-generator-resources.json',lab.samples)
+    headroom={role:generator_headroom(lab.samples,role,capacity,
+               lab.config.get('gnb_cpus' if role=='gnb' else 'generator_cpus'))
+               for role,capacity in lab.config.get('generator_physical_capacity',{}).items()
+               if role in ('ue','gnb')} if lab.samples and not any('error' in row for row in lab.samples) else {}
+    event['generator_headroom_passed']=bool(headroom) and all(row['passed'] for row in headroom.values())
+    write(lab.output/'recovery-generator-headroom.json',{'roles':headroom,'passed':event['generator_headroom_passed'],
+            'scope':'UE, gNB and traffic tool resource headroom; expected core death is excluded; core costs are not measured'})
+    for _,_,_,process in clients:
+        stop_group(process)
+    event['streams'] = [{'transport':transport,'ue':n,**recovery_result(path,fault_ns,seconds,request_floor_ns)}
+                        for transport,n,path,_ in clients]
+    current_radio = {name:p.pid for p,role,name in lab.processes if role in ('ue','gnb')}
+    event['radio_alive_unchanged'] = current_radio == radio and all(
+        p.poll() is None for p,role,_ in lab.processes if role in ('ue','gnb'))
+    event['new_process_alive'] = restarted.poll() is None
+    event['other_core_processes'] = {name:{'pid':p.pid,'alive':p.poll() is None} for name,p in other_core}
+    event['other_core_processes_alive'] = all(p.poll() is None for _,p in other_core)
+    current_database_pid = command(['podman','inspect','--format','{{.State.Pid}}',lab.mongo],check=False).strip() if lab.mongo else None
+    event['database_pid_before'] = database_pid
+    event['database_pid_after'] = current_database_pid
+    event['database_alive_unchanged'] = (database_pid is None or
+        (database_pid == current_database_pid and database_pid.isdigit() and int(database_pid)>0 and Path('/proc',database_pid).exists()))
+    event['recovered_streams'] = sum(row['recovered'] for row in event['streams'])
+    event['devices_with_restored_service'] = sum(all(row['recovered'] for row in event['streams'] if row['ue'] == n)
+                                      for n in range(len(interfaces)))
+    event['requested_devices'] = len(interfaces)
+    event['service_scope'] = 'Existing TCP/UDP service; PDU context persistence and new sessions are not tested'
+    event['passed'] = (not event.get('probe_exited') and event['radio_alive_unchanged'] and
+                       event['new_process_alive'] and event['other_core_processes_alive'] and event['database_alive_unchanged'] and
+                       event['generator_headroom_passed'] and event['recovered_streams'] == len(clients))
+    if not inject:
+        event['passed'] &= all(row['observation_failed_requests'] == 0 for row in event['streams'])
+    write(lab.output/'service-recovery.json',event)
+    return event['passed']
+
 
 def recovery(lab, interfaces, nf, seconds):
     for n, (_, ip) in enumerate(interfaces):
         ping(lab, ip, f"baseline-{n}")
-    original = next(p for p, _, name in lab.processes if name == f"core-{nf}")
+    label, original = fault_process(lab,nf)
     radio_pids = {name: p.pid for p, role, name in lab.processes if role in ("ue", "gnb")}
     clients = [lab.start(f"recovery-ping-{n}", ["ping", "-D", "-n", "-I", ip, "-i", ".1", "-w", str(seconds + 10), "-W", "1", "192.0.2.1"], namespace=lab.ue_ns)
                for n, (_, ip) in enumerate(interfaces)]
@@ -38,7 +151,7 @@ def recovery(lab, interfaces, nf, seconds):
     at = time.time()
     os.killpg(original.pid, signal.SIGKILL)
     original.wait(timeout=5)
-    restarted = lab.restart(f"core-{nf}")
+    restarted = lab.restart(label)
     event = {"nf": nf, "signal": "SIGKILL", "failed_at": at, "restarted_at": time.time(),
              "old_pid": original.pid, "new_pid": restarted.pid, "radio_pids": radio_pids,
              "radio_restart": False, "deadline_seconds": seconds}
@@ -227,7 +340,7 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--core',required=True)
     parser.add_argument('--radio',default='ueransim')
-    parser.add_argument('--case',choices=('recovery','fresh-recovery','fresh-session','churn','soak','reject'),required=True)
+    parser.add_argument('--case',choices=('recovery','service-recovery','service-control','fresh-recovery','fresh-session','churn','soak','reject'),required=True)
     parser.add_argument('--variant',choices=('bad-key','unknown-subscriber','bad-dnn','bad-slice'),default='bad-key')
     parser.add_argument('--nf',choices=('amf','smf','upf'),default='upf')
     parser.add_argument('--seconds',type=int,default=120)
@@ -246,6 +359,10 @@ def main():
     plan=read(args.plan);check_inputs(plan)
     args.output.mkdir(parents=True,exist_ok=False)
     config=read(Path(plan['driver'][-1]));config['resource_sample_seconds']=1 if args.case=='soak' else .1
+    if args.case in ('service-recovery','service-control'):
+        if plan['protocol'].get('user_plane')!='ueransim':
+            parser.error('service recovery needs a plan with user_plane set to ueransim')
+        config['user_plane']='ueransim'
     config['enable_radio_commands']=args.case=='churn'
     config['candidate']=args.core
     config['monitor_registration']=False
@@ -264,7 +381,16 @@ def main():
                 interfaces=[]
             else:
                 _,interfaces=lab.radio(args.radio,args.ue_count,args.core)
+            if args.case in ('service-recovery','service-control'):
+                proof=profile_proof((lab.output/'ue.log').read_text(),args.ue_count,lab.config)
+                write(args.output/'nas-profile-proof.json',proof)
+                if not proof['passed'] or not proof['security_passed']:
+                    raise ValueError('Recovery baseline NAS profile or initial authentication state differs')
+                if len(interfaces) != args.ue_count or len({ip for _,ip in interfaces}) != args.ue_count:
+                    raise ValueError('Recovery baseline does not have distinct addresses for every requested UE')
             if args.case=='recovery':receipt['passed']=recovery(lab,interfaces,args.nf,args.seconds)
+            elif args.case in ('service-recovery','service-control'):
+                receipt['passed']=service_recovery(lab,interfaces,args.nf,args.seconds,args.case=='service-recovery')
             elif args.case=='fresh-recovery':receipt['passed']=fresh_recovery(lab,interfaces,args.nf,args.seconds)
             elif args.case=='fresh-session':receipt['passed']=fresh_recovery(lab,interfaces,None,args.seconds)
             elif args.case=='churn':receipt['passed']=churn(lab,interfaces,args.cycles)

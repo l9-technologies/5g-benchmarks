@@ -91,6 +91,10 @@ def validate_plan(plan):
     if protocol.get('probe_timestamp_precision','micro') not in ('micro','nano'):raise ValueError('probe timestamp precision must be micro or nano')
     if "readiness_timeout_seconds" in protocol:number(protocol["readiness_timeout_seconds"],"readiness timeout",1,10)
     if "idle_seconds" in protocol:number(protocol["idle_seconds"],"idle seconds",1,300)
+    if protocol.get('resource_accounting') not in (None,'selected-core-processes'):
+        raise ValueError('unknown resource accounting boundary')
+    if protocol.get('cpu_clock') not in (None,'process-nanoseconds'):
+        raise ValueError('unknown process CPU clock')
     candidates = plan["candidates"]
     if not 2 <= len(candidates) <= 20:
         raise ValueError("supply candidates and one repeated baseline (2 to 20 entries)")
@@ -186,15 +190,19 @@ def measurement_failures(plan,measurement,count):
     return failures
 
 
-def comparison_reasons(metric,aa,bb,scope):
+def comparison_reasons(metric,aa,bb,scope,resource_accounting=None):
+    core_resource=metric.startswith('core_') or '_core_cpu_' in metric
     keys=['service_profile']
     if metric.startswith(('registration_','session_','attach_','stack_')):keys.append('authentication_profile')
-    if metric.startswith(('core_','host_')) or '_host_cpu_' in metric:keys.append('durability_profile')
-    if metric.startswith(('core_','host_','ue_','gnb_')) or '_host_cpu_' in metric:keys.append('resource_scope')
+    if core_resource or metric.startswith('host_') or '_host_cpu_' in metric:keys.append('durability_profile')
+    if core_resource and resource_accounting=='selected-core-processes':keys.append('process_resource_scope')
+    elif core_resource or metric.startswith(('host_','ue_','gnb_')) or '_host_cpu_' in metric:keys.append('resource_scope')
     if scope=='radio_pair':keys.append('radio_capability_profile')
     reasons=[]
     if any(r['measurement'].get('metric_notes',{}).get(metric) for r in aa+bb):reasons.append('metric_boundary_unverified')
-    if metric.endswith('binary_bytes') or metric.startswith('core_') or '_core_cpu_' in metric:
+    partial=(resource_accounting=='selected-core-processes' and bool(aa+bb) and
+             all(r['measurement'].get('comparison_state',{}).get('process_resource_scope')=='selected-core-processes' for r in aa+bb))
+    if metric.endswith('binary_bytes') or core_resource and not partial:
         reasons.append('incomplete_resource_boundary')
     for key in keys:
         values=[r['measurement'].get('comparison_state',{}).get(key) for r in aa+bb]
@@ -207,4 +215,12 @@ def selected_schedule(plan, manifest):
     shard = manifest.get("shard", {"index": 0, "count": 1})
     if type(shard.get("count")) is not int or type(shard.get("index")) is not int or not 1 <= shard["count"] <= plan["repetitions"] or not 0 <= shard["index"] < shard["count"]:
         raise ValueError("invalid shard metadata")
-    return [r for r in schedule(plan) if (r["repetition"] - 1) % shard["count"] == shard["index"]]
+    rows = [r for r in schedule(plan) if (r["repetition"] - 1) % shard["count"] == shard["index"]]
+    if 'trial_ids' in manifest:
+        ids = manifest['trial_ids']
+        if not isinstance(ids,list) or not ids or any(not isinstance(i,str) for i in ids) or len(ids)!=len(set(ids)):
+            raise ValueError('invalid trial selection')
+        rows = [r for r in rows if r['id'] in ids]
+        if [r['id'] for r in rows] != ids:
+            raise ValueError('trial selection must follow the saved schedule and shard')
+    return rows

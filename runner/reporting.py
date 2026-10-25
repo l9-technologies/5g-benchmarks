@@ -29,8 +29,12 @@ def neutral_comparisons(plan,groups):
                         'absolute_interval':stats['absolute_interval'] if stats else None,
                         'interval_percent':stats['symmetric_percent_interval'] if stats else None,'reasons':reasons})
                     continue
-                reasons+=comparison_reasons(metric,aa,bb,scope)
+                reasons+=comparison_reasons(metric,aa,bb,scope,plan['protocol'].get('resource_accounting'))
                 comparisons.append({'scope':scope,'ue_count':count,'metric':metric,'unit':unit,'a':a['id'],'b':b['id'],
+                    'resource_boundary':('Selected core and database processes; excludes kernel/eBPF; no complete-core resource claim'
+                        if plan['protocol'].get('resource_accounting')=='selected-core-processes' and (metric.startswith('core_') or '_core_cpu_' in metric)
+                        else 'Whole guest including kernel, database, radio, generator and observer' if metric.startswith('host_') or '_host_cpu_' in metric
+                        else 'Default measurement boundary applies'),
                     'a_median':statistics.median([v for v in av if v is not None]) if any(v is not None for v in av) else None,
                     'b_median':statistics.median([v for v in bv if v is not None]) if any(v is not None for v in bv) else None,
                     'a_minus_b_95_ci':stats['absolute_interval'] if stats else None,
@@ -124,6 +128,7 @@ def make_report(directory):
                         for r in rows for k, v in r["measurement"].get("features", {}).items() if v == "failed"]
     if status == "measured" and (metric_failures or feature_failures):
         status = "measured_with_failures"
+    if 'trial_ids' in manifest:status='batch_complete' if not problems else 'incomplete'
     required_failures=[{'trial':r['trial']['id'],'feature':f,'observed':r['measurement'].get('features',{}).get(f,'untested')} for r in rows for f in plan.get('required_features',[]) if r['measurement'].get('features',{}).get(f)!='passed']
     report = {"schema_version": 1,"method_version":plan.get('method_version',1),'required_feature_failures':required_failures, "status": status, "publishable": False,
         "plan_sha256": manifest["plan_sha256"], "host": manifest["host"], "protocol": plan["protocol"],
@@ -135,7 +140,7 @@ def make_report(directory):
     if plan.get('method_version',1)==2:
         report['method']='Method 2: every candidate has a repeated baseline; complete order rotations; paired bootstrap, 4000 resamples; symmetric mean-median equivalence margin and symmetric relative differences. Each interval is exploratory and per metric. Required feature failures block comparisons. All planned comparisons are shown. No overall rank or independent certification.'
         report['independent_verification']='not_performed'
-        report['comparison_claims_ready']=bool(comparisons) and not required_failures and not problems and all(c['decision'] in ('a_better','b_better','equivalent','no_clear_difference') for c in comparisons)
+        report['comparison_claims_ready']='trial_ids' not in manifest and bool(comparisons) and not required_failures and not problems and all(c['decision'] in ('a_better','b_better','equivalent','no_clear_difference') for c in comparisons)
     write(directory / "report.json", report)
     lines = ["# 5G comparison", "", f"Status: {status}. Trials: {len(rows)}.", "", report["scope"], "", report["method"], "",
              "| Scope | UEs | Metric | A | B | A median | B median | A minus B, 95% interval | Result |",
