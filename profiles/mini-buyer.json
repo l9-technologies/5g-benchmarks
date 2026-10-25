@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "name": "mini-buyer-traffic-and-devices",
+  "cores": [
+    "1sc",
+    "open5gs",
+    "free5gc",
+    "ella",
+    "qcore"
+  ],
+  "repetitions": 10,
+  "seed": 1729,
+  "equivalence_percent": 5,
+  "timeout_seconds": 600,
+  "required_features": [
+    "registration",
+    "pdu_session"
+  ],
+  "defaults": {
+    "resource_accounting": "selected-core-processes",
+    "cpu_clock": "process-nanoseconds",
+    "duration_seconds": 30,
+    "warmup_seconds": 5,
+    "packet_bytes": 1200,
+    "offered_mbps_per_ue": 1,
+    "traffic_modes": [
+      "udp_ul",
+      "udp_dl"
+    ],
+    "probe_interval_seconds": 0.2,
+    "resource_sample_seconds": 0.1,
+    "load_tolerance_percent": 5,
+    "probe_timestamp_precision": "nano",
+    "user_plane": "linux-gtp",
+    "readiness_timeout_seconds": 2
+  },
+  "cases": [
+    {
+      "id": "devices",
+      "ue_counts": [
+        1,
+        10,
+        50
+      ],
+      "idle_seconds": 30,
+      "metrics": [
+        "attach_success_percent",
+        "registration_success_percent",
+        "session_success_percent",
+        "registration_attempted_ues",
+        "registration_successful_ues",
+        "registration_rejected_ues",
+        "registration_pending_ues",
+        "session_attempted_ues",
+        "session_successful_ues",
+        "session_rejected_ues",
+        "session_pending_ues",
+        "registration_p50_ms",
+        "registration_p95_ms",
+        "session_p50_ms",
+        "session_p95_ms",
+        "stack_traffic_ready_ms",
+        "udp_ul_mbps",
+        "udp_ul_pps",
+        "udp_ul_loss_percent",
+        "udp_ul_rtt_p50_ms",
+        "udp_ul_rtt_p95_ms",
+        "udp_ul_rtt_p99_ms",
+        "udp_ul_ping_loss_percent",
+        "udp_ul_core_cpu_seconds_per_gbit",
+        "udp_ul_host_cpu_seconds_per_gbit",
+        "udp_dl_mbps",
+        "udp_dl_pps",
+        "udp_dl_loss_percent",
+        "udp_dl_rtt_p50_ms",
+        "udp_dl_rtt_p95_ms",
+        "udp_dl_rtt_p99_ms",
+        "udp_dl_ping_loss_percent",
+        "udp_dl_core_cpu_seconds_per_gbit",
+        "udp_dl_host_cpu_seconds_per_gbit",
+        "core_idle_pss_bytes",
+        "core_pss_peak_bytes",
+        "core_cpu_seconds"
+      ]
+    },
+    {
+      "id": "load-100",
+      "ue_counts": [
+        10
+      ],
+      "offered_mbps_per_ue": 10,
+      "metrics": [
+        "udp_ul_mbps",
+        "udp_ul_pps",
+        "udp_ul_loss_percent",
+        "udp_ul_rtt_p50_ms",
+        "udp_ul_rtt_p95_ms",
+        "udp_ul_rtt_p99_ms",
+        "udp_ul_ping_loss_percent",
+        "udp_ul_core_cpu_seconds_per_gbit",
+        "udp_ul_host_cpu_seconds_per_gbit",
+        "udp_dl_mbps",
+        "udp_dl_pps",
+        "udp_dl_loss_percent",
+        "udp_dl_rtt_p50_ms",
+        "udp_dl_rtt_p95_ms",
+        "udp_dl_rtt_p99_ms",
+        "udp_dl_ping_loss_percent",
+        "udp_dl_core_cpu_seconds_per_gbit",
+        "udp_dl_host_cpu_seconds_per_gbit",
+        "core_idle_pss_bytes",
+        "core_pss_peak_bytes",
+        "core_cpu_seconds"
+      ]
+    },
+    {
+      "id": "load-500",
+      "ue_counts": [
+        10
+      ],
+      "offered_mbps_per_ue": 50,
+      "metrics": [
+        "udp_ul_mbps",
+        "udp_ul_pps",
+        "udp_ul_loss_percent",
+        "udp_ul_rtt_p50_ms",
+        "udp_ul_rtt_p95_ms",
+        "udp_ul_rtt_p99_ms",
+        "udp_ul_ping_loss_percent",
+        "udp_ul_core_cpu_seconds_per_gbit",
+        "udp_ul_host_cpu_seconds_per_gbit",
+        "udp_dl_mbps",
+        "udp_dl_pps",
+        "udp_dl_loss_percent",
+        "udp_dl_rtt_p50_ms",
+        "udp_dl_rtt_p95_ms",
+        "udp_dl_rtt_p99_ms",
+        "udp_dl_ping_loss_percent",
+        "udp_dl_core_cpu_seconds_per_gbit",
+        "udp_dl_host_cpu_seconds_per_gbit",
+        "core_idle_pss_bytes",
+        "core_pss_peak_bytes",
+        "core_cpu_seconds"
+      ]
+    },
+    {
+      "id": "packet-64",
+      "ue_counts": [
+        10
+      ],
+      "offered_mbps_per_ue": 5,
+      "packet_bytes": 64,
+      "metrics": [
+        "udp_ul_mbps",
+        "udp_ul_pps",
+        "udp_ul_loss_percent",
+        "udp_ul_rtt_p50_ms",
+        "udp_ul_rtt_p95_ms",
+        "udp_ul_rtt_p99_ms",
+        "udp_ul_ping_loss_percent",
+        "udp_ul_core_cpu_seconds_per_gbit",
+        "udp_ul_host_cpu_seconds_per_gbit",
+        "udp_dl_mbps",
+        "udp_dl_pps",
+        "udp_dl_loss_percent",
+        "udp_dl_rtt_p50_ms",
+        "udp_dl_rtt_p95_ms",
+        "udp_dl_rtt_p99_ms",
+        "udp_dl_ping_loss_percent",
+        "udp_dl_core_cpu_seconds_per_gbit",
+        "udp_dl_host_cpu_seconds_per_gbit",
+        "core_idle_pss_bytes",
+        "core_pss_peak_bytes",
+        "core_cpu_seconds"
+      ]
+    },
+    {
+      "id": "packet-256",
+      "ue_counts": [
+        10
+      ],
+      "offered_mbps_per_ue": 10,
+      "packet_bytes": 256,
+      "metrics": [
+        "udp_ul_mbps",
+        "udp_ul_pps",
+        "udp_ul_loss_percent",
+        "udp_ul_rtt_p50_ms",
+        "udp_ul_rtt_p95_ms",
+        "udp_ul_rtt_p99_ms",
+        "udp_ul_ping_loss_percent",
+        "udp_ul_core_cpu_seconds_per_gbit",
+        "udp_ul_host_cpu_seconds_per_gbit",
+        "udp_dl_mbps",
+        "udp_dl_pps",
+        "udp_dl_loss_percent",
+        "udp_dl_rtt_p50_ms",
+        "udp_dl_rtt_p95_ms",
+        "udp_dl_rtt_p99_ms",
+        "udp_dl_ping_loss_percent",
+        "udp_dl_core_cpu_seconds_per_gbit",
+        "udp_dl_host_cpu_seconds_per_gbit",
+        "core_idle_pss_bytes",
+        "core_pss_peak_bytes",
+        "core_cpu_seconds"
+      ]
+    }
+  ],
+  "confirmation": [
+    "devices",
+    "load-100",
+    "packet-64"
+  ]
+}

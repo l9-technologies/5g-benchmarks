@@ -7,6 +7,13 @@ import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 ALLOWED = {
+    'adapters/process_clock.py',
+    'tests/check_process_clock_e2e.py',
+    'adapters/service_probe.py',
+    'docs/mini-buyer-suite.md',
+    'profiles/mini-buyer.json',
+    'tests/check_service_probe_e2e.py',
+    'tests/test_partial_resource_commands.py',
     'runner/workflow.py',
     'runner/host_control.py',
     'runner/lab.py',
@@ -15,6 +22,8 @@ ALLOWED = {
     'docs/calibration.md',
     'profiles/generator-calibration.json',
     'tests/test_host_control.py',
+    'tests/test_trial_batches.py',
+    'tests/test_pilot_selection.py',
     'requirements-lab.txt',
     '.github/workflows/ci-host-check.yml',
     '.github/workflows/verification.yml',

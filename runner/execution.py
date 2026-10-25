@@ -8,7 +8,7 @@ import signal
 import shutil
 import subprocess
 import time
-from .contracts import schedule,validate_measurement,validate_plan,measurement_failures
+from .contracts import selected_schedule,schedule,validate_measurement,validate_plan,measurement_failures
 from .evidence import check_inputs,digest,evidence_hashes,object_hash,read,write,verified_trials
 from .reporting import make_report
 from .snapshot import save_report_tool
@@ -58,10 +58,11 @@ def invoke(argv, cwd, env, timeout, log):
             stop_group(proc, grace=30)
 
 
-def run(plan_path, output, shard_index=0, shard_count=1, *, resume=False, max_trials=None, report_on_finish=True, max_total_trials=None, recover_only=False):
+def run(plan_path, output, shard_index=0, shard_count=1, *, resume=False, max_trials=None, report_on_finish=True, max_total_trials=None, recover_only=False, trial_ids=None):
     plan = validate_plan(read(plan_path))
     if not 1 <= shard_count <= plan["repetitions"] or not 0 <= shard_index < shard_count:
         raise ValueError("invalid shard index or count")
+    selected_schedule(plan, {'shard':{'index':shard_index,'count':shard_count}, **({'trial_ids':trial_ids} if trial_ids is not None else {})})
     check_inputs(plan)
     if max_trials is not None and (type(max_trials) is not int or max_trials < 1):
         raise ValueError("max trials must be a positive integer")
@@ -78,6 +79,8 @@ def run(plan_path, output, shard_index=0, shard_count=1, *, resume=False, max_tr
                 raise ValueError("resume plan or shard changed")
             if host_identity() != manifest["host"]:
                 raise ValueError("host identity changed; use a new cohort")
+            if trial_ids is not None and trial_ids!=manifest.get('trial_ids'):
+                raise ValueError('resume trial selection changed')
             # A complete result can survive a crash just before its manifest
             # checkpoint. Verify all raw evidence and cleanup before adoption.
             pending={entry['id']:digest(output/'trials'/entry['id']/'result.json') for entry in manifest['schedule']
@@ -103,8 +106,8 @@ def run(plan_path, output, shard_index=0, shard_count=1, *, resume=False, max_tr
             write(output / "plan.json", plan)
             manifest = {"plan_sha256": object_hash(plan), "schedule": schedule(plan), "host": host_identity(), "result_hashes": {},
                         "report_tool_sha256": digest(output / "report-tool.py"), "shard": {"index": shard_index, "count": shard_count}}
-            if shard_count > 1:
-                manifest["schedule"] = [r for r in manifest["schedule"] if (r["repetition"] - 1) % shard_count == shard_index]
+            if trial_ids is not None:manifest['trial_ids']=trial_ids
+            manifest['schedule']=selected_schedule(plan,manifest)
             write(output / "manifest.json", manifest)
         collected = 0
         for entry in manifest["schedule"]:
@@ -220,6 +223,7 @@ def merge(directories, output):
     write(output / "plan.json", plans[0])
     combined = {**manifests[0], "shard": {"index": 0, "count": 1},
         "schedule": schedule(plans[0]), "result_hashes": {}, "trial_hosts": {}, "hosts": []}
+    combined.pop('trial_ids',None)
     for d, m in zip(directories, manifests, strict=True):
         combined["hosts"].append(m["host"])
         for r in m["schedule"]:

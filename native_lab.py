@@ -24,6 +24,7 @@ from benchmark import balanced_repetitions, FEATURES, METRICS, USER_PLANES, dige
 from runner.contracts import packet_sizes
 from adapters import open5gs,free5gc,ueransim,ella,qcore,kernel_gtp,session_ambr,steering,probe_window
 from adapters.common import NFS,OPEN_NFS,FREE_NFS,KEY,OPC,UE_ROUTE_TABLE_BASE,initial_sqn,command,module,service_profile,subscriber_sqn,subscriber_population
+from adapters.process_clock import ProcessClock
 
 ROOT = Path(__file__).resolve().parent
 
@@ -567,30 +568,41 @@ class Lab:
                 result[int(pid)] = "core"
         return result
 
-    def start_monitor(self):
+    def start_monitor(self,roles=None):
         if self.monitor_thread is None:
-            self.monitor_thread = threading.Thread(target=self.monitor)
+            self.monitor_thread = threading.Thread(target=self.monitor,args=(roles,))
             self.monitor_thread.start()
         if not self.monitor_ready.wait(timeout=5) or not self.samples or 'error' in self.samples[0]:
             raise RuntimeError('Resource monitor did not start')
 
-    def monitor(self):
+    def monitor(self,roles=None):
+        allowed=set(('core','ue','gnb','traffic') if roles is None else roles)
+        if not allowed or allowed-{'core','ue','gnb','traffic'}:
+            raise ValueError('Unknown or empty resource monitor roles')
         ticks_per_second, page = os.sysconf("SC_CLK_TCK"), os.sysconf("SC_PAGE_SIZE")
+        clock=ProcessClock() if self.config.get('cpu_clock')=='process-nanoseconds' else None
         cpu_totals, thread_totals = {}, {}
-        pids = {pid: role for pid, role in self.pids().items() if role != 'traffic'}
+        pids = {pid: role for pid, role in self.pids().items() if role != 'traffic' and role in allowed}
         while not self.monitor_stop.is_set():
-            row = {"time": time.monotonic(), "roles": {role: {"cpu": 0, "rss": 0, "pss": 0} for role in ("core", "ue", "gnb", "traffic")}}
-            row["threads"] = {role: {} for role in ("core", "ue", "gnb", "traffic")}
+            row = {"time": time.monotonic(), "roles": {role: {"cpu": 0, "rss": 0, "pss": 0} for role in ("core", "ue", "gnb", "traffic") if role in allowed}}
+            row["threads"] = {role: {} for role in ("core", "ue", "gnb", "traffic") if role in allowed}
+            if self.config.get('resource_accounting')=='selected-core-processes':
+                row['process_accounting']={}
             try:
-                pids.update({p.pid: role for p, role, _ in list(self.processes) if role == 'ue'})
-                live_traffic = {p.pid: role for p, role, _ in list(self.processes) if role == 'traffic' and p.poll() is None}
+                pids.update({p.pid: role for p, role, _ in list(self.processes) if role == 'ue' and role in allowed})
+                live_traffic = {p.pid: role for p, role, _ in list(self.processes) if role == 'traffic' and role in allowed and p.poll() is None}
                 for pid, role in {**pids, **live_traffic}.items():
                     try:
                         stat = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()
-                        cpu_totals[(pid, role)] = (int(stat[11]) + int(stat[12])) / ticks_per_second
+                        cpu_ns=clock.read_ns(pid) if clock is not None else None
+                        cpu_totals[(pid, role)] = cpu_ns/1e9 if cpu_ns is not None else (int(stat[11]) + int(stat[12])) / ticks_per_second
                         row["roles"][role]["rss"] += int(stat[21]) * page
                         memory = Path(f"/proc/{pid}/smaps_rollup").read_text()
                         row["roles"][role]["pss"] += int(re.search(r"^Pss:\s+(\d+)", memory, re.M)[1]) * 1024
+                        if 'process_accounting' in row:
+                            row['process_accounting'][str(pid)]={'role':role,'cpu_seconds':cpu_totals[(pid,role)],
+                                'cpu_time_ns':cpu_ns,'stat_cpu_ticks':int(stat[11])+int(stat[12]),
+                                'rss_bytes':int(stat[21])*page,'pss_bytes':int(re.search(r"^Pss:\s+(\d+)",memory,re.M)[1])*1024}
                         if role in ("ue", "gnb", "traffic"):
                             for task in Path(f"/proc/{pid}/task").iterdir():
                                 try:
@@ -675,13 +687,6 @@ class Lab:
             time.sleep(protocol['idle_seconds'])
             idle_ended=time.monotonic()
             write(self.output/'idle-window.json',{'start_monotonic':idle_started,'end_monotonic':idle_ended,'declared_seconds':protocol['idle_seconds'],'traffic':'no UE traffic after readiness and idle probes'})
-        idle_samples = self.samples[idle_start:]
-        if 'idle_seconds' in protocol:idle_samples=[s for s in idle_samples if idle_started<=s.get('time',-1)<=idle_ended]
-        if idle_samples:
-            for role in ("core", "ue", "gnb"):
-                for name in ("rss", "pss"):
-                    metrics[f"{role}_idle_{name}_bytes"] = percentile([s["roles"][role][name] for s in idle_samples if "roles" in s], .5)
-            metrics['host_idle_memory_used_bytes']=percentile([s['host_memory_used_bytes'] for s in idle_samples if 'host_memory_used_bytes' in s],.5)
         for mode in protocol.get("traffic_modes", ("tcp_ul", "tcp_dl", "udp_ul", "udp_dl")):
             phase_start = len(self.samples)
             phase_started = time.monotonic()
@@ -798,6 +803,15 @@ class Lab:
         write(self.output / "resources.json", self.samples)
         if len(self.samples) < 2 or any("error" in s for s in self.samples):
             raise ValueError("resource samples incomplete")
+        # Select idle samples only after the monitor has joined. A sample can
+        # start inside the idle interval and finish after that interval closes.
+        idle_samples = self.samples[idle_start:]
+        if 'idle_seconds' in protocol:idle_samples=[s for s in idle_samples if idle_started<=s.get('time',-1)<=idle_ended]
+        if idle_samples:
+            for role in ("core", "ue", "gnb"):
+                for name in ("rss", "pss"):
+                    metrics[f"{role}_idle_{name}_bytes"] = percentile([s["roles"][role][name] for s in idle_samples if "roles" in s], .5)
+            metrics['host_idle_memory_used_bytes']=percentile([s['host_memory_used_bytes'] for s in idle_samples if 'host_memory_used_bytes' in s],.5)
         for role in ("core", "ue", "gnb"):
             if metric_errors:
                 for name in ("cpu_seconds", "rss_peak_bytes", "pss_peak_bytes"):
@@ -879,6 +893,8 @@ def trial(config_path):
     config["candidate"]=candidate["core"]
     config["user_plane"]=plan["protocol"].get("user_plane",config.get("user_plane","ueransim"))
     config["resource_sample_seconds"]=plan["protocol"].get("resource_sample_seconds",.1)
+    config['resource_accounting']=plan['protocol'].get('resource_accounting')
+    config['cpu_clock']=plan['protocol'].get('cpu_clock')
     if config.get("observer_cpus"):os.sched_setaffinity(0,config["observer_cpus"])
     lab = Lab(config, output)
     result = {"kind": "live", "cleanup_ok": False, "quality_errors": [], "metrics": {},
@@ -889,9 +905,16 @@ def trial(config_path):
     signal.signal(signal.SIGINT, interrupted)
     try:
         lab.setup()
-        startup = time.monotonic()
+        before=time.monotonic_ns();epoch=time.time_ns();after=time.monotonic_ns()
+        startup=((before+after)//2)/1e9
+        startup_anchor={'start_monotonic_ns':(before+after)//2,'epoch_ns':epoch,
+                        'monotonic_before_ns':before,'monotonic_after_ns':after,
+                        'boundary':'Start of fresh core provisioning and launch; end is the last first external N6 reply'}
         lab.startup_started = startup
-        lab.start_core(candidate['core'],count)
+        try:
+            lab.start_core(candidate['core'],count)
+        finally:
+            write(output/'startup-anchor.json',startup_anchor)
         write(output / "listener-readiness.json", {"elapsed_ms": (time.monotonic() - startup) * 1000, "boundary": "implementation-specific listener and association checks; not a common startup metric"})
         capture = lab.start("capture", ["tcpdump", "-i", "any", "-s", "0", "-c", str(max(2000, count * 128)), "-U", "-w", output / "n2-n3.pcap", "sctp or udp port 2152"], namespace=lab.radio_ns)
         lab.wait(lambda: "listening on" in (output / "capture.log").read_text())
@@ -921,10 +944,39 @@ def trial(config_path):
         result["features"]["distinct_ue_addresses"] = "passed" if count > 1 else "untested"
         tunnels=lab.prepare_user_plane(interfaces,capture)
         metrics, errors, metric_errors = lab.traffic(interfaces, plan["protocol"])
+        if config.get('resource_accounting')=='selected-core-processes':
+            policy={'state':'fresh disposable core and subscriber stores per trial',
+                    'process_cpu_clock':config.get('cpu_clock') or 'proc-stat-ticks',
+                    'required_features':sorted(plan['required_features']),
+                    'restart_and_session_persistence':'not tested; no persistence or production-equivalence claim',
+                    'scope':'selected core and database processes; kernel/eBPF excluded'}
+            population=read(output/'subscriber-population.json')
+            population_ok=(population['attached_ue_target']==count and population['provisioned_subscribers']==subscriber_population(config,count))
+            database_pid=command(['podman','inspect','--format','{{.State.Pid}}',lab.mongo]).strip() if lab.mongo else None
+            accounting_ok=bool(lab.samples) and all(
+                'process_accounting' in sample and any(row['role']=='core' for row in sample['process_accounting'].values())
+                and sum(row['pss_bytes'] for row in sample['process_accounting'].values() if row['role']=='core')==sample['roles']['core']['pss']
+                and abs(sum(row['cpu_seconds'] for row in sample['process_accounting'].values() if row['role']=='core')-sample['roles']['core']['cpu'])<1e-9
+                and (database_pid is None or sample['process_accounting'].get(database_pid,{}).get('role')=='core')
+                for sample in lab.samples)
+            proved=auth_proof['passed'] and auth_proof['security_passed'] and population_ok and accounting_ok
+            write(output/'process-accounting-proof.json',{'passed':proved,'policy':policy,
+                'subscriber_population':population,'sample_count':len(lab.samples),
+                'database_container':lab.mongo,'database_pid':database_pid,
+                'sampled_core_pids':sorted({pid for sample in lab.samples for pid,row in sample.get('process_accounting',{}).items() if row['role']=='core'})})
+            if proved:
+                result['comparison_state'].update(durability_profile=object_hash(policy),process_resource_scope='selected-core-processes')
+                write(output/'comparison-state.json',result['comparison_state'])
+            else:
+                for name in metrics:
+                    if name.startswith('core_') or '_core_cpu_' in name:
+                        lab.metric_notes[name]='Selected process accounting or fresh-state policy is unverified'
         result["metrics"].update(metrics)
+        if after-before>1000000:
+            result.setdefault('metric_notes',{})['stack_traffic_ready_ms']='Startup clock anchor bracket exceeds 1 ms'
         result.setdefault("metric_errors", {}).update(metric_errors)
         result["quality_errors"].extend(errors)
-        result["metric_notes"]=dict(lab.metric_notes)
+        result["metric_notes"]={**result.get('metric_notes',{}),**lab.metric_notes}
         if not auth_proof['passed']:
             for name in result['metrics']:
                 if name.startswith(('attach_','stack_','registration_','session_')):result['metric_notes'][name]='initial authentication state is unverified or differs'

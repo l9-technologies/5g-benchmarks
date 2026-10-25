@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import subprocess
 import tarfile
-from .contracts import schedule,validate_plan
+from .contracts import schedule,pilot_schedule,validate_plan
 from .evidence import check_inputs,read
 from .execution import merge,run
 from .reporting import make_report
@@ -24,6 +24,9 @@ def main():
             p.add_argument("--shard-count", type=int, default=1)
             p.add_argument("--resume", action="store_true")
             p.add_argument("--max-trials", type=int)
+            selection = p.add_mutually_exclusive_group()
+            selection.add_argument("--trial-ids", nargs="+")
+            selection.add_argument("--pilot", action="store_true")
     sub.add_parser("report").add_argument("directory", type=Path)
     p = sub.add_parser("merge")
     p.add_argument("directories", nargs="+", type=Path)
@@ -88,7 +91,9 @@ def main():
             print(json.dumps({"status": "ready", "trials": len(schedule(plan))}))
             return 0
         if args.action == "run":
-            report = run(args.plan.resolve(), args.output.resolve(), args.shard_index, args.shard_count, resume=args.resume, max_trials=args.max_trials)
+            if args.pilot:
+                args.trial_ids = [r['id'] for r in pilot_schedule(validate_plan(read(args.plan)))]
+            report = run(args.plan.resolve(), args.output.resolve(), args.shard_index, args.shard_count, resume=args.resume, max_trials=args.max_trials, trial_ids=args.trial_ids)
         elif args.action == "merge":
             report = merge([d.resolve() for d in args.directories], args.output.resolve())
         else:

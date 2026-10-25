@@ -11,6 +11,13 @@ ROOT = Path(__file__).resolve().parent
 def export(output):
     output.mkdir(parents=True, exist_ok=False)
     names = (
+        'adapters/process_clock.py',
+        'tests/check_process_clock_e2e.py',
+        'adapters/service_probe.py',
+        'docs/mini-buyer-suite.md',
+        'profiles/mini-buyer.json',
+        'tests/check_service_probe_e2e.py',
+        'tests/test_partial_resource_commands.py',
         'requirements-lab.txt',
         'benchmark.py',
         'native_lab.py',
@@ -73,6 +80,8 @@ def export(output):
     'docs/calibration.md',
     'profiles/generator-calibration.json',
     'tests/test_host_control.py',
+    'tests/test_trial_batches.py',
+    'tests/test_pilot_selection.py',
         'runner/contracts.py',
         'runner/evidence.py',
         'runner/execution.py',
